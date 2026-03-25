@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Order;
 use Illuminate\Http\Request;
 use Stripe\Stripe;
 use Stripe\PaymentIntent;
 use Illuminate\Support\Facades\Http;
+use Nette\Utils\Json;
+use Illuminate\Support\Facades\Log;
 
 class PaymentController extends Controller
 {
@@ -38,6 +41,14 @@ class PaymentController extends Controller
 
             $fraudData = $fraudRes->json();
 
+            $order = Order::create([
+                'order_id' => $orderId,
+                'amount' => $amount,
+                'fraud_score' => $fraudData['score'],
+                'fraud_action' => $fraudData['action'],
+                'status' => ($fraudData['action'] === 'block') ? 'FRAUD_BLOCKED' : 'PENDING'
+            ]);
+
             // Xử lí theo quyết định AI
             if($fraudData['action'] === 'block'){
                 return response()->json([
@@ -67,14 +78,63 @@ class PaymentController extends Controller
                 ],
             ]);
 
+            // Chuẩn bị data để ky số 
+            $dataToSignArray = [
+                'payload' => "Order:{$order->order_id}|Amount:{$amount}|StripeID:{$paymentIntent->id}"
+            ];
+            $bodyJson = json_encode($dataToSignArray);
+
+            // Lấy Secret_Key
+            $secret = env('HMAC_SECRET');
+
+            // Băm HMAC-SHA256 để tạo chữ ký xác thực nội bộ
+            $signature = hash_hmac('sha256',$bodyJson,$secret);
+
+            $signRes = Http::withHeaders([
+                'X-Signature' => $signature,
+                'Content-Type' => 'application/json'
+            ])->withBody($bodyJson,'application/json')
+            ->post('http://host.docker.internal:8888/api/sign');
+
+            // Lấy chuỗi Base64 từ trường 'signature' lưu vào cột jws_signature
+            $jwsSignature = $signRes->successful() ? $signRes->json('signature') : 'SIGNING_FAILED';
+
+            $order->update([
+                'stripe_payment_id' => $paymentIntent->id,
+                'jws_signature' => $jwsSignature,
+                'status' => 'PENDING'
+            ]);
+
+            // Trả kết quả về FE
             return response()->json([
                 'client_secret' => $paymentIntent->client_secret,
                 'fraud_score' => $fraudData['score'],
-                'action' => $fraudData['action']
+                'action' => $fraudData['action'],
+                'receipt_signature' => $jwsSignature
             ]);
 
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function handleWebhook(Request $request){
+        $payload = $request->all();
+
+        // Kiểm tra xem có phải thanh toán thành công không
+        if(isset($payload['type']) &&  $payload['type'] === 'payment_intent.succeeded'){
+            $paymentIntent = $payload['data']['object'];
+            $stripeId = $paymentIntent['id'];
+
+            $order = Order::where('stripe_payment_id',$stripeId)->first();
+
+            if($order){
+                $order->update(['status' => 'SUCCESS']);
+
+                Log::info("Khách đã nhập OTP. Đơn {$order->order_id} thanh toán thành công");
+            }
+            // Trả về 200 OK. Nếu không, Stripe sẽ tưởng server sập và nó sẽ spam gọi lại liên tục.
+            return response()->json(['status' => 'success'], 200);
         }
     }
 }

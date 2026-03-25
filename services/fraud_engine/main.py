@@ -26,9 +26,17 @@ class Transaction(BaseModel):
 @app.post("/api/fraud/score")
 def score_fraud(tx: Transaction):
     # TẦNG 1: RULE-BASED ENGINE
-    # Ví dụ: Giao dịch > 100 triệu là drop
+    # Quy tắc 1: Chặn nếu số tiền quá lớn (giữ nguyên của bạn)
     if tx.amount > 100000000:
-        return {"action": "block", "score": 99, "reason": "Rule: Số tiền vượt ngưỡng an toàn"}
+        return {"action": "block", "score": 99, "reason": "Rule: Số tiền vượt ngưỡng 100 triệu"}
+
+    # Quy tắc 2: Chặn nếu thử sai quá nhiều lần (Mới)
+    if tx.failed_attempts >= 5:
+        return {"action": "block", "score": 100, "reason": "Rule: Thử sai quá 5 lần"}
+
+    # Quy tắc 3: Ép 3DS ngay nếu giao dịch giá trị cao và có tiền sử thử sai
+    if tx.amount > 10000000 and tx.failed_attempts >= 1:
+        return {"action": "force_3ds", "score": 60, "reason": "Rule: Giao dịch lớn kèm thử sai"}
 
     # TẦNG 2: ML ENGINE
     # Tính xác suất lừa đảo (từ 0.0 -> 1.0)

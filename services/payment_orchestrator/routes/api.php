@@ -9,3 +9,5 @@ Route::get('/user', function (Request $request) {
 })->middleware('auth:sanctum');
 
 Route::post('/payments/charge', [PaymentController::class, 'charge']);
+
+Route::post('/webhook/stripe', [\App\Http\Controllers\Api\PaymentController::class, 'handleWebhook']);
