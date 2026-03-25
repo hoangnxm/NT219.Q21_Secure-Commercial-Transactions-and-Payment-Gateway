@@ -1,0 +1,33 @@
+version: "3.8"
+
+services:
+  # 1. Trạm gác Nginx (Đứng mũi chịu sào)
+  nginx-mtls:
+    image: nginx:alpine
+    container_name: nginx-mtls-proxy
+    ports:
+      - "8443:8443" # Mở cổng HTTPS ra cho Laravel gọi
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./certs:/etc/nginx/certs
+    depends_on:
+      - softhsm-api
+    networks:
+      - secure_gateway_net
+
+  # 2. API Két sắt SoftHSM (Nằm trong vùng an toàn)
+  softhsm-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.softhsm
+    container_name: softhsm-container
+    # KHÔNG CẦN EXPOSE PORT RA NGOÀI NỮA
+    # ports:
+    #   - "8888:8888"
+    restart: unless-stopped
+    networks:
+      - secure_gateway_net
+
+networks:
+  secure_gateway_net:
+    driver: bridge
