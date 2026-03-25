@@ -19,12 +19,13 @@ nonce_cache = TTLCache(maxsize=10000, ttl=MAX_TIME_WINDOW)
 class SignRequest(BaseModel):
     payload: str 
 
-# --- MÀNG LỌC CHỐNG HACKER (HMAC + REPLAY ATTACK) ---
+# Thêm x_token vào tham số của hàm verify_security_headers
 async def verify_security_headers(
     request: Request, 
     x_signature: str = Header(None),
     x_timestamp: int = Header(None),
-    x_nonce: str = Header(None)
+    x_nonce: str = Header(None),
+    authorization: str = Header(None) # Lấy token từ header
 ):
     # 1. Kiểm tra 3 món vũ khí bảo mật
     if not all([x_signature, x_timestamp, x_nonce]):
@@ -38,11 +39,23 @@ async def verify_security_headers(
     # 3. Check Nonce trong RAM (Thay cho Redis)
     if x_nonce in nonce_cache:
         raise HTTPException(status_code=403, detail="Phát hiện Replay Attack! Nonce này đã được sử dụng.")
+    
+    # Tách lấy chữ ký JWT (bỏ chữ Bearer đi)
+    token = authorization.split(" ")[1] if authorization else "no-token"
 
-    # 4. Xác thực HMAC (Băm cả Timestamp + Nonce + Body)
+  ## 4. Xác thực HMAC (Băm cả Timestamp + Nonce + Body)
     body = await request.body()
-    data_to_hash = f"{x_timestamp}.{x_nonce}.{body.decode('utf-8')}".encode('utf-8')
+    
+    # DÙNG .strip() ĐỂ ÉP BỎ KÝ TỰ XUỐNG DÒNG THỪA
+    body_text = body.decode('utf-8').strip()
+    data_to_hash = f"{x_timestamp}.{x_nonce}.{body_text}".encode('utf-8')
     expected_mac = hmac.new(SHARED_SECRET, data_to_hash, hashlib.sha256).hexdigest()
+    
+    # In ra log của Docker để bắt quả tang lỗi
+    print("--- DEBUG HMAC ---")
+    print(f"Server tự băm: {expected_mac}")
+    print(f"Client gửi tới: {x_signature}")
+    print(f"Dữ liệu gốc: {data_to_hash}")
     
     if not hmac.compare_digest(expected_mac, x_signature):
         raise HTTPException(status_code=403, detail="Sai chữ ký HMAC! Dữ liệu bị sửa.")
