@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  softhsm-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.softhsm
+    container_name: softhsm-container
+    ports:
+      - "8888:8888"
+    restart: unless-stopped
+    networks:
+      - secure_gateway_net
+
+# Khởi tạo một mạng ảo nội bộ để các container tự nói chuyện với nhau
+networks:
+  secure_gateway_net:
+    driver: bridge
