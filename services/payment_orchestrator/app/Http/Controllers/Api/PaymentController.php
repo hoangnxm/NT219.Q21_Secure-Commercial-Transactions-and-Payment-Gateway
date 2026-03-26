@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+<<<<<<< HEAD
 use App\Models\Order;
 use Illuminate\Http\Request;
 use Stripe\Stripe;
@@ -10,6 +11,11 @@ use Stripe\PaymentIntent;
 use Illuminate\Support\Facades\Http;
 use Nette\Utils\Json;
 use Illuminate\Support\Facades\Log;
+=======
+use Illuminate\Http\Request;
+use Stripe\Stripe;
+use Stripe\PaymentIntent;
+>>>>>>> e69290af98218f5cd392608f0e498a080e09a611
 
 class PaymentController extends Controller
 {
@@ -21,6 +27,7 @@ class PaymentController extends Controller
         $amount = $request->input('amount', 50000); 
         $orderId = $request->input('order_id');
 
+<<<<<<< HEAD
         // Query số lần thất bại, giờ mock tạm là 0 hoặc 1 để test
         $failedAttempts = $request->input('failed_attempts', 0);
 
@@ -111,12 +118,34 @@ class PaymentController extends Controller
                 'fraud_score' => $fraudData['score'],
                 'action' => $fraudData['action'],
                 'receipt_signature' => $jwsSignature
+=======
+        try {
+            // Chỉ KHỞI TẠO giao dịch, CHƯA confirm (xác nhận)
+            $paymentIntent = PaymentIntent::create([
+                'amount' => $amount,
+                'currency' => 'vnd',
+                // Nhét order_id vào để đối soát sau này
+                'metadata' => [
+                    'order_id' => $orderId,
+                ],
+                // Tính năng tự động hỗ trợ 3-D Secure cho Payment Element
+                'automatic_payment_methods' => [
+                    'enabled' => true,
+                ],
+            ]);
+
+            // Trả cái chìa khóa (client_secret) về cho thằng Nguyễn Hoàng vẽ UI
+            return response()->json([
+                'client_secret' => $paymentIntent->client_secret,
+                'order_id' => $orderId
+>>>>>>> e69290af98218f5cd392608f0e498a080e09a611
             ]);
 
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
         }
     }
+<<<<<<< HEAD
 
     public function handleWebhook(Request $request){
         $payload = $request->all();
@@ -137,4 +166,6 @@ class PaymentController extends Controller
             return response()->json(['status' => 'success'], 200);
         }
     }
+=======
+>>>>>>> e69290af98218f5cd392608f0e498a080e09a611
 }

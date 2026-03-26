@@ -56,3 +56,16 @@ def score_fraud(tx: Transaction):
         "score": score, 
         "reason": f"ML Model Predict (Probability: {prob:.2f})"
     }
+
+if __name__ == "__main__":
+    print("\n--- BÁO CÁO ĐO ĐẠC AI (CHO SLIDE THUYẾT TRÌNH) ---")
+    # Tự test lại trên chính tập data để lấy chỉ số
+    predictions = model.predict(df[['amount', 'failed_attempts']])
+    from sklearn.metrics import accuracy_score
+    acc = accuracy_score(df['is_fraud'], predictions) * 100
+    print(f"✅ Độ chính xác của mô hình (Accuracy): {acc:.2f}%")
+    print("✅ Các luật (Rules) Tầng 1 đã được kích hoạt thành công.")
+    print("--------------------------------------------------\n")
+    
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8002)

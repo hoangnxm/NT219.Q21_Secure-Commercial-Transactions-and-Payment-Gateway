@@ -53,7 +53,7 @@ const CheckoutForm = () => {
           setMessage(`❌ Lỗi từ Server: ${data.detail || 'Lỗi không xác định'}`); 
         }
       } catch (err) {
-        setMessage(`❌ Không kết nối được Backend (Ông đã bật uvicorn chưa?)`);
+        setMessage(`❌ Không kết nối được Backend (Ông đã bật cổng 8001 chưa?)`);
       }
       setLoading(false);
     }
@@ -80,7 +80,6 @@ const CheckoutForm = () => {
           border: '1px solid #ddd', padding: '15px', borderRadius: '6px', 
           marginBottom: '25px', backgroundColor: '#f9f9f9' 
         }}>
-          {/* Ô nhập thẻ bảo mật của Stripe */}
           <CardElement options={{ 
             style: { base: { fontSize: '16px', color: '#424770', '::placeholder': { color: '#aab7c4' } } },
             hidePostalCode: true 
@@ -99,7 +98,6 @@ const CheckoutForm = () => {
           {loading ? 'Đang xử lý...' : 'Thanh toán ngay'}
         </button>
 
-        {/* Thông báo trạng thái */}
         {message && (
           <div style={{ 
             marginTop: '20px', padding: '10px', borderRadius: '4px', textAlign: 'center',
@@ -110,7 +108,6 @@ const CheckoutForm = () => {
           </div>
         )}
 
-        {/* Hiển thị biên lai JWS (Tính chống chối bỏ - Non-repudiation) */}
         {jwsReceipt && (
           <div style={{ 
             marginTop: '20px', padding: '15px', backgroundColor: '#f8f9fa', 
@@ -133,8 +130,9 @@ const CheckoutForm = () => {
         )}
       </form>
     </div>
-  );
+  );  
 };
+
 function App() {
   return (
     <Elements stripe={stripePromise}>

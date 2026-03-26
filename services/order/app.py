@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uuid
-import httpx # THÊM THƯ VIỆN NÀY ĐỂ GỌI API
+import httpx 
 import time
 import hmac
 import hashlib
@@ -55,18 +55,24 @@ class CheckoutRequest(BaseModel):
 async def create_order(request: CheckoutRequest):
     db = SessionLocal()
     
-    # 1. TÍNH TOÁN & KIỂM TRA KHO (RESERVE STOCK)
-    product = db.query(Product).filter(Product.id == request.product_id).first()
+    # 1. TÌM VÀ KHÓA DÒNG DỮ LIỆU SẢN PHẨM (Pessimistic Locking)
+    product = db.query(Product).filter(Product.id == request.product_id).with_for_update().first()
+    
     if not product:
+        db.close()
         raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
     if product.stock < request.quantity:
+        db.close()
         raise HTTPException(status_code=400, detail="Hết hàng!")
 
-    # 2. GIỮ CHỖ KHO
+    # 2. GIỮ CHỖ KHO VÀ CHỐT SỔ NGAY LẬP TỨC ĐỂ NHẢ KHÓA
     product.stock -= request.quantity
+    db.commit() 
+    
     order_id = str(uuid.uuid4())
     total_amount = product.price * request.quantity
 
+    # 3. GỌI PAYMENT ORCHESTRATOR ĐỂ TRỪ TIỀN
     async with httpx.AsyncClient() as client:
         try:
             pay_payload = {
@@ -74,18 +80,20 @@ async def create_order(request: CheckoutRequest):
                 "amount": total_amount, 
                 "payment_token": request.payment_token
             }
-            pay_resp = await client.post(PAYMENT_ORCHESTRATOR_URL, json=pay_payload, timeout=10.0)
             
-            if pay_resp.status_code != 200:
-                product.stock += request.quantity
-                db.commit()
-                raise HTTPException(status_code=400, detail=f"Thanh toán Stripe thất bại: {pay_resp.text}")
+            response = await client.post(PAYMENT_ORCHESTRATOR_URL, json=pay_payload)
+            if response.status_code != 200:
+                raise Exception("Thanh toán bị từ chối bởi Payment Gateway")
                 
         except Exception as e:
-            product.stock += request.quantity
-            db.commit()
-            raise HTTPException(status_code=500, detail=f"Không kết nối được Payment Orchestrator: {str(e)}")
+            refund_product = db.query(Product).filter(Product.id == request.product_id).with_for_update().first()
+            if refund_product:
+                refund_product.stock += request.quantity
+                db.commit()
+            db.close()
+            raise HTTPException(status_code=500, detail=f"Lỗi thanh toán, đã hoàn lại kho: {str(e)}")
 
+    # 4. LƯU ĐƠN HÀNG VÀO DB
     new_order = Order(
         id=order_id, product_id=request.product_id,
         quantity=request.quantity, amount=total_amount,
@@ -95,17 +103,27 @@ async def create_order(request: CheckoutRequest):
     db.commit()
     print(f"✅ Đã trừ tiền và tạo đơn {order_id}. Kho còn: {product.stock}")
 
-    real_jws_receipt = ""
+    # 5. TẠO CHỮ KÝ HMAC
+    real_jws_receipt = "eyJhbGciOiJSUzI1NiJ9... (Giả lập do chưa bật SoftHSM)"
     payload_str = f'{{"payload": "HoaDon_{order_id}_{total_amount}VND"}}'
     
     timestamp = int(time.time())
     nonce = uuid.uuid4().hex
     data_to_hash = f"{timestamp}.{nonce}.{payload_str}".encode('utf-8')
     signature = hmac.new(HMAC_SECRET, data_to_hash, hashlib.sha256).hexdigest()
-
-    headers =headers = {
+    
+    headers = {
         "Content-Type": "application/json",
         "X-Signature": signature,
         "X-Timestamp": str(timestamp),
         "X-Nonce": nonce
+    }
+
+    db.close()
+    
+    return {
+        "status": "success", 
+        "order_id": order_id, 
+        "amount": total_amount,
+        "jws_receipt": real_jws_receipt
     }

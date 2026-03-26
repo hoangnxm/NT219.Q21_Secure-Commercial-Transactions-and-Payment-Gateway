@@ -5,7 +5,6 @@ import httpx
 import asyncio
 import uuid
 
-# --- CẤU HÌNH ---
 SOFTHSM_URL = "http://localhost:8888/api/sign"
 HMAC_SECRET = b"chuoi_bi_mat_cua_nhom_NT219"
 
