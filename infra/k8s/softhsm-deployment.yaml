@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: softhsm
+  namespace: nt219-project
+spec:
+  selector:
+    matchLabels:
+      app: softhsm
+  template:
+    metadata:
+      labels:
+        app: softhsm
+    spec:
+      containers:
+      - name: softhsm
+        image: softhsm-service:latest
+        imagePullPolicy: Never # Vì mình build local
+        ports:
+        - containerPort: 8888 # Port giả định để gọi API ký số
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: softhsm
+  namespace: nt219-project
+spec:
+  selector:
+    app: softhsm
+  ports:
+    - protocol: TCP
+      port: 8888
+      targetPort: 8888

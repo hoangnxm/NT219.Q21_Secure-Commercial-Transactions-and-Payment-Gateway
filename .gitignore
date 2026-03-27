@@ -27,4 +27,11 @@ bootstrap/cache/
 
 dist/
 build/
+<<<<<<< HEAD
 .next/
+=======
+.next/
+venv/
+storage/certs/
+*.txt
+>>>>>>> feat/stripe-checkout-and-order-service

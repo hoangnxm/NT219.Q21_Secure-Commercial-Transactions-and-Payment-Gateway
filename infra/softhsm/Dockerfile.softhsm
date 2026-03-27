@@ -1,0 +1,32 @@
+FROM ubuntu:22.04
+
+# Tránh bị dừng lại hỏi vùng miền
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 1. Cài đặt các gói cần thiết
+RUN apt-get update && apt-get install -y \
+    softhsm2 \
+    opensc \
+    python3 \
+    python3-pip \
+    dos2unix \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Cài thư viện Python
+RUN pip3 install --no-cache-dir python-pkcs11 fastapi uvicorn pydantic cachetools
+
+# 3. Cấu hình thư mục chứa Token (Két sắt)
+RUN mkdir -p /var/lib/softhsm/tokens/ && \
+    echo "directories.tokendir = /var/lib/softhsm/tokens/" > /etc/softhsm/softhsm2.conf
+
+WORKDIR /app
+
+# 4. Copy và dùng dos2unix để "diệt" lỗi xuống dòng của Windows
+COPY init-hsm.sh /usr/local/bin/init-hsm.sh
+RUN dos2unix /usr/local/bin/init-hsm.sh && chmod +x /usr/local/bin/init-hsm.sh
+
+COPY signer_api.py /app/signer_api.py
+
+# 5. Chạy API
+EXPOSE 8888
+CMD ["/bin/bash", "-c", "/usr/local/bin/init-hsm.sh && uvicorn signer_api:app --host 0.0.0.0 --port 8888"]
