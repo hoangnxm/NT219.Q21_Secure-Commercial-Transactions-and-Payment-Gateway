@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-<<<<<<< HEAD
 use App\Models\Order;
 use Illuminate\Http\Request;
 use Stripe\Stripe;
@@ -11,11 +10,6 @@ use Stripe\PaymentIntent;
 use Illuminate\Support\Facades\Http;
 use Nette\Utils\Json;
 use Illuminate\Support\Facades\Log;
-=======
-use Illuminate\Http\Request;
-use Stripe\Stripe;
-use Stripe\PaymentIntent;
->>>>>>> e69290af98218f5cd392608f0e498a080e09a611
 
 class PaymentController extends Controller
 {
@@ -27,7 +21,6 @@ class PaymentController extends Controller
         $amount = $request->input('amount', 50000); 
         $orderId = $request->input('order_id');
 
-<<<<<<< HEAD
         // Query số lần thất bại, giờ mock tạm là 0 hoặc 1 để test
         $failedAttempts = $request->input('failed_attempts', 0);
 
@@ -77,6 +70,9 @@ class PaymentController extends Controller
                     'order_id' => $orderId,
                     'fraud_score' => $fraudData['score']
                 ],
+                'automatic_payment_methods' =>[
+                    'enabled' => true,
+                ],
                 'payment_method_options' => [
                     'card' => [
                         // Kích hoạt 3DS phụ thuộc theo lệnh AI
@@ -85,26 +81,47 @@ class PaymentController extends Controller
                 ],
             ]);
 
-            // Chuẩn bị data để ky số 
-            $dataToSignArray = [
-                'payload' => "Order:{$order->order_id}|Amount:{$amount}|StripeID:{$paymentIntent->id}"
-            ];
-            $bodyJson = json_encode($dataToSignArray);
+            // Ký số
+            $jwsSignature = 'HSM_OFFLINE_TEMP';
+            try{
+                $stripeId = $paymentIntent->id;
+                $orderInfo = "Order:{$orderId}|Amount:{$amount}|StripeID:{$stripeId}";
 
-            // Lấy Secret_Key
-            $secret = env('HMAC_SECRET');
+                $dataToSend = ['payload' => $orderInfo];
 
-            // Băm HMAC-SHA256 để tạo chữ ký xác thực nội bộ
-            $signature = hash_hmac('sha256',$bodyJson,$secret);
+                $finalJson = json_encode($dataToSend, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
-            $signRes = Http::withHeaders([
-                'X-Signature' => $signature,
-                'Content-Type' => 'application/json'
-            ])->withBody($bodyJson,'application/json')
-            ->post('http://host.docker.internal:8888/api/sign');
+                // Tạo header bảo mật
+                $timestamp = time();
+                $nonce = bin2hex(random_bytes(16));
+                $dataToHash = $timestamp . '.' . $nonce . '.' . $finalJson;
 
-            // Lấy chuỗi Base64 từ trường 'signature' lưu vào cột jws_signature
-            $jwsSignature = $signRes->successful() ? $signRes->json('signature') : 'SIGNING_FAILED';
+                // Mật khẩu HMAC
+                $secret = env('HMAC_SECRET','chuoi_bi_mat_cua_nhom_NT219');
+                $signature = hash_hmac('sha256',$dataToHash,$secret);
+
+                // Gọi SoftHSM qua port 8443 (mTLS)
+                $signRes = Http::withOptions([
+                    'verify' => false,
+                    'cert' => storage_path('certs/client.crt'),
+                    'ssl_key' => storage_path('certs/client.key')
+                ])->withHeaders([
+                    'X-Signature' => $signature,
+                    'X-Timestamp' => $timestamp,
+                    'X-Nonce' => $nonce,
+                ])->withBody($finalJson,'application/json')
+                ->post('https://host.docker.internal:8443/api/sign');
+
+                if($signRes->successful()){
+                    $jwsSignature = $signRes->json('signature');
+                } else{
+                    $jwsSignature = 'SIGNING FAILED';
+                    Log::error("SoftHSM Error: " . $signRes->body());
+                }
+            }catch(\Exception $hsmError){
+                Log::error("HSM Connection Error: " . $hsmError->getMessage());
+                $jwsSignature = 'HSM_OFFLINE_TEMP';
+            }
 
             $order->update([
                 'stripe_payment_id' => $paymentIntent->id,
@@ -114,38 +131,20 @@ class PaymentController extends Controller
 
             // Trả kết quả về FE
             return response()->json([
+                'status' => 'success',
+                'order_id' => $order->order_id,
+                'amount' => $order->amount,
                 'client_secret' => $paymentIntent->client_secret,
                 'fraud_score' => $fraudData['score'],
                 'action' => $fraudData['action'],
-                'receipt_signature' => $jwsSignature
-=======
-        try {
-            // Chỉ KHỞI TẠO giao dịch, CHƯA confirm (xác nhận)
-            $paymentIntent = PaymentIntent::create([
-                'amount' => $amount,
-                'currency' => 'vnd',
-                // Nhét order_id vào để đối soát sau này
-                'metadata' => [
-                    'order_id' => $orderId,
-                ],
-                // Tính năng tự động hỗ trợ 3-D Secure cho Payment Element
-                'automatic_payment_methods' => [
-                    'enabled' => true,
-                ],
-            ]);
-
-            // Trả cái chìa khóa (client_secret) về cho thằng Nguyễn Hoàng vẽ UI
-            return response()->json([
-                'client_secret' => $paymentIntent->client_secret,
-                'order_id' => $orderId
->>>>>>> e69290af98218f5cd392608f0e498a080e09a611
+                'receipt_signature' => $jwsSignature,
+                'jws_receipt' => $jwsSignature
             ]);
 
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
         }
     }
-<<<<<<< HEAD
 
     public function handleWebhook(Request $request){
         $payload = $request->all();
@@ -162,10 +161,9 @@ class PaymentController extends Controller
 
                 Log::info("Khách đã nhập OTP. Đơn {$order->order_id} thanh toán thành công");
             }
+        }
             // Trả về 200 OK. Nếu không, Stripe sẽ tưởng server sập và nó sẽ spam gọi lại liên tục.
             return response()->json(['status' => 'success'], 200);
-        }
     }
-=======
->>>>>>> e69290af98218f5cd392608f0e498a080e09a611
+
 }

@@ -28,3 +28,6 @@ bootstrap/cache/
 dist/
 build/
 .next/
+venv/
+storage/certs/
+*.txt

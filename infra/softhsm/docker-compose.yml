@@ -18,12 +18,15 @@ services:
   # 2. API Két sắt SoftHSM (Nằm trong vùng an toàn)
   softhsm-api:
     build:
-      context: .
+      context: . 
       dockerfile: Dockerfile.softhsm
     container_name: softhsm-container
     # KHÔNG CẦN EXPOSE PORT RA NGOÀI NỮA
     # ports:
     #   - "8888:8888"
+    environment:
+      - HMAC_SECRET=chuoi_bi_mat_cua_nhom_NT219 
+      - PKCS11_MODULE=/usr/lib/softhsm/libsofthsm2.so
     restart: unless-stopped
     networks:
       - secure_gateway_net

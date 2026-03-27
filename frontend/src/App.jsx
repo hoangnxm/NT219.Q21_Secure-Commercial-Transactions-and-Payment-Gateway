@@ -33,22 +33,22 @@ const CheckoutForm = () => {
       setMessage(`✅ Đã lấy Token! Đang gửi đơn hàng...`);
       
       try {
-        const response = await fetch('http://localhost:8001/api/orders/create', {
+        const response = await fetch('http://localhost:8000/api/payments/charge', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            product_id: "iphone-15",
-            quantity: 1,
+            order_id: "id32",
+            amount: 50000,
             payment_token: paymentMethod.id 
           }),
         });
 
         const data = await response.json();
 
-        if (response.ok && data.status === "success") {
+        if (response.ok && data.receipt_signature) {
           const formattedAmount = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(data.amount);
           setMessage(`🚀 Thành công! Order ID: ${data.order_id} | Tổng tiền: ${formattedAmount}`);
-          setJwsReceipt(data.jws_receipt); 
+          setJwsReceipt(data.receipt_signature); 
         } else {
           setMessage(`❌ Lỗi từ Server: ${data.detail || 'Lỗi không xác định'}`); 
         }
