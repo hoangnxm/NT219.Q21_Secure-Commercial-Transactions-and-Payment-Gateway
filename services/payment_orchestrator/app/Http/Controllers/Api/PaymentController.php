@@ -3,11 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-<<<<<<< HEAD
-use Illuminate\Http\Request;
-use Stripe\Stripe;
-use Stripe\PaymentIntent;
-=======
 use App\Models\Order;
 use Illuminate\Http\Request;
 use Stripe\Stripe;
@@ -15,7 +10,6 @@ use Stripe\PaymentIntent;
 use Illuminate\Support\Facades\Http;
 use Nette\Utils\Json;
 use Illuminate\Support\Facades\Log;
->>>>>>> feat/stripe-checkout-and-order-service
 
 class PaymentController extends Controller
 {
@@ -27,27 +21,6 @@ class PaymentController extends Controller
         $amount = $request->input('amount', 50000); 
         $orderId = $request->input('order_id');
 
-<<<<<<< HEAD
-        try {
-            // Chỉ KHỞI TẠO giao dịch, CHƯA confirm (xác nhận)
-            $paymentIntent = PaymentIntent::create([
-                'amount' => $amount,
-                'currency' => 'vnd',
-                // Nhét order_id vào để đối soát sau này
-                'metadata' => [
-                    'order_id' => $orderId,
-                ],
-                // Tính năng tự động hỗ trợ 3-D Secure cho Payment Element
-                'automatic_payment_methods' => [
-                    'enabled' => true,
-                ],
-            ]);
-
-            // Trả cái chìa khóa (client_secret) về cho thằng Nguyễn Hoàng vẽ UI
-            return response()->json([
-                'client_secret' => $paymentIntent->client_secret,
-                'order_id' => $orderId
-=======
         // Query số lần thất bại, giờ mock tạm là 0 hoặc 1 để test
         $failedAttempts = $request->input('failed_attempts', 0);
 
@@ -166,16 +139,12 @@ class PaymentController extends Controller
                 'action' => $fraudData['action'],
                 'receipt_signature' => $jwsSignature,
                 'jws_receipt' => $jwsSignature
->>>>>>> feat/stripe-checkout-and-order-service
             ]);
 
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
         }
     }
-<<<<<<< HEAD
-}
-=======
 
     public function handleWebhook(Request $request){
         $payload = $request->all();
@@ -198,4 +167,3 @@ class PaymentController extends Controller
     }
 
 }
->>>>>>> feat/stripe-checkout-and-order-service

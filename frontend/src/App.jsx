@@ -1,13 +1,3 @@
-<<<<<<< HEAD
-import Checkout from "./components/Checkout";
-
-function App() {
-  return (
-    <div>
-      <h1 style={{ textAlign: "center" }}>Demo Đồ Án Mật Mã Học</h1>
-      <Checkout />
-    </div>
-=======
 import { useState } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
@@ -148,7 +138,6 @@ function App() {
     <Elements stripe={stripePromise}>
       <CheckoutForm />
     </Elements>
->>>>>>> feat/stripe-checkout-and-order-service
   );
 }
 
