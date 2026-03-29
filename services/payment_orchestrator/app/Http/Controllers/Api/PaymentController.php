@@ -17,7 +17,7 @@ class PaymentController extends Controller
     {
         Stripe::setApiKey(env('STRIPE_SECRET'));
 
-        // Lúc này Frontend nó chỉ gửi 2 món này sang thôi
+        // Nhận dữ liệu từ frontend
         $amount = $request->input('amount', 50000); 
         $orderId = $request->input('order_id');
 
@@ -62,16 +62,21 @@ class PaymentController extends Controller
             $force3ds = ($fraudData['action'] === 'force_3ds');
 
             // Chuyển tiếp cho Stripe(PSP)
+            $paymentToken = $request->input('payment_token');
             Stripe::setApiKey(env('STRIPE_SECRET'));
             $paymentIntent = PaymentIntent::create([
                 'amount' => $amount,
                 'currency' => 'vnd',
+                'payment_method' => $paymentToken,
+                'confirm' => true,
+                'return_url' => 'http://localhost:5173',
                 'metadata' => [
                     'order_id' => $orderId,
                     'fraud_score' => $fraudData['score']
                 ],
                 'automatic_payment_methods' =>[
                     'enabled' => true,
+                    'allow_redirects' => 'always'
                 ],
                 'payment_method_options' => [
                     'card' => [

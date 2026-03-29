@@ -37,8 +37,8 @@ const CheckoutForm = () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            order_id: "id32",
-            amount: 50000,
+            order_id: "idd112",
+            amount: 60000,
             payment_token: paymentMethod.id 
           }),
         });

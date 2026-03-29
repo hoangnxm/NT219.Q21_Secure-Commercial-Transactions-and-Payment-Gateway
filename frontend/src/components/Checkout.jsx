@@ -14,7 +14,7 @@ export default function Checkout() {
   useEffect(() => {
     // Gọi sang API của Leader Ngô Hoàng (nhớ bảo nó chốt cái URL và Port)
     // Ví dụ Backend Laravel đang chạy ở http://localhost:8000
-    axios.post("https://quiet-signs-poke.loca.lt/api/payments/charge", {
+    axios.post("https://localhost/api/payments/charge", {
       order_id: "ORD-123456",
       amount: 50000,
     })
