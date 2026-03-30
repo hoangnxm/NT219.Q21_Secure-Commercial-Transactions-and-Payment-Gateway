@@ -12,7 +12,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        // Dán đoạn code bỏ qua CSRF vào đây:
+        $middleware->validateCsrfTokens(except: [
+            'api/webhook', // Đảm bảo URL này khớp với route bạn định nghĩa
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
