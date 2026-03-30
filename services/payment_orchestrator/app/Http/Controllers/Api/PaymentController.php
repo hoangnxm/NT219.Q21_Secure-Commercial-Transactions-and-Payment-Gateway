@@ -17,11 +17,10 @@ class PaymentController extends Controller
     {
         Stripe::setApiKey(env('STRIPE_SECRET'));
 
-        // Nhận dữ liệu từ frontend
+       // Nhận dữ liệu từ backend của Ngô Hoàng
         $amount = $request->input('amount', 50000); 
         $orderId = $request->input('order_id');
-
-        // Query số lần thất bại, giờ mock tạm là 0 hoặc 1 để test
+        $email = $request->input('email'); // Nhiệm vụ 1: Lấy thêm email
         $failedAttempts = $request->input('failed_attempts', 0);
 
         try {
@@ -65,26 +64,20 @@ class PaymentController extends Controller
             $paymentToken = $request->input('payment_token');
             Stripe::setApiKey(env('STRIPE_SECRET'));
             $paymentIntent = PaymentIntent::create([
-                'amount' => $amount,
-                'currency' => 'vnd',
-                'payment_method' => $paymentToken,
-                'confirm' => true,
-                'return_url' => 'http://localhost:5173',
-                'metadata' => [
-                    'order_id' => $orderId,
-                    'fraud_score' => $fraudData['score']
-                ],
-                'automatic_payment_methods' =>[
-                    'enabled' => true,
-                    'allow_redirects' => 'always'
-                ],
-                'payment_method_options' => [
-                    'card' => [
-                        // Kích hoạt 3DS phụ thuộc theo lệnh AI
-                        'request_three_d_secure' => $force3ds ? 'any' : 'automatic',
-                    ],
-                ],
-            ]);
+            'amount' => $amount,
+            'currency' => 'vnd',
+            'receipt_email' => $email, // Gắn email vào hóa đơn Stripe
+            'metadata' => [
+            'order_id' => $orderId,
+            'fraud_score' => $fraudData['score']
+        ],
+        // Cấu hình 3DS dựa trên Fraud Engine
+        'payment_method_options' => [
+            'card' => [
+                'request_three_d_secure' => $force3ds ? 'any' : 'automatic',
+            ],
+        ],
+    ]);
 
             // Ký số
             $jwsSignature = 'HSM_OFFLINE_TEMP';
@@ -129,46 +122,80 @@ class PaymentController extends Controller
             }
 
             $order->update([
-                'stripe_payment_id' => $paymentIntent->id,
-                'jws_signature' => $jwsSignature,
-                'status' => 'PENDING'
-            ]);
+        'stripe_payment_id' => $paymentIntent->id,
+        'jws_signature' => $jwsSignature,
+        'status' => 'PENDING'
+        ]);
 
             // Trả kết quả về FE
             return response()->json([
-                'status' => 'success',
-                'order_id' => $order->order_id,
-                'amount' => $order->amount,
-                'client_secret' => $paymentIntent->client_secret,
-                'fraud_score' => $fraudData['score'],
-                'action' => $fraudData['action'],
-                'receipt_signature' => $jwsSignature,
-                'jws_receipt' => $jwsSignature
-            ]);
+        'status' => 'success',
+        'order_id' => $order->order_id,
+        'amount' => $order->amount,
+        'client_secret' => $paymentIntent->client_secret, // Bắt buộc phải có để trả về FE
+        'fraud_score' => $fraudData['score'],
+        'action' => $fraudData['action'],
+        'receipt_signature' => $jwsSignature,
+        'jws_receipt' => $jwsSignature
+    ]);
 
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
         }
     }
 
-    public function handleWebhook(Request $request){
-        $payload = $request->all();
+    public function handleWebhook(Request $request)
+{
+    $endpoint_secret = env('STRIPE_WEBHOOK_SECRET');
 
-        // Kiểm tra xem có phải thanh toán thành công không
-        if(isset($payload['type']) &&  $payload['type'] === 'payment_intent.succeeded'){
-            $paymentIntent = $payload['data']['object'];
-            $stripeId = $paymentIntent['id'];
+    // 1. Lấy raw payload và header chữ ký
+    $payload = $request->getContent();
+    $sig_header = $request->header('Stripe-Signature');
+    $event = null;
 
-            $order = Order::where('stripe_payment_id',$stripeId)->first();
+    // 2. Xác minh chữ ký (Nhiệm vụ 3)
+    try {
+        $event = \Stripe\Webhook::constructEvent(
+            $payload, $sig_header, $endpoint_secret
+        );
+    } catch(\UnexpectedValueException $e) {
+        // Payload không hợp lệ
+        Log::error('Webhook error: Invalid payload.');
+        return response()->json(['error' => 'Invalid payload'], 400);
+    } catch(\Stripe\Exception\SignatureVerificationException $e) {
+        // Chữ ký không hợp lệ (Hacker giả mạo)
+        Log::error('Webhook error: Invalid signature.');
+        return response()->json(['error' => 'Invalid signature'], 400);
+    }
 
+    // 3. Xử lý các Event (Nhiệm vụ 4)
+    switch ($event->type) {
+        case 'payment_intent.succeeded':
+            $paymentIntent = $event->data->object;
+            $order = Order::where('stripe_payment_id', $paymentIntent->id)->first();
+            
             if($order){
                 $order->update(['status' => 'SUCCESS']);
-
-                Log::info("Khách đã nhập OTP. Đơn {$order->order_id} thanh toán thành công");
+                Log::info("Webhook: Đơn {$order->order_id} thanh toán thành công.");
             }
-        }
-            // Trả về 200 OK. Nếu không, Stripe sẽ tưởng server sập và nó sẽ spam gọi lại liên tục.
-            return response()->json(['status' => 'success'], 200);
+            break;
+
+        case 'payment_intent.payment_failed':
+            $paymentIntent = $event->data->object;
+            $order = Order::where('stripe_payment_id', $paymentIntent->id)->first();
+            
+            if($order){
+                $order->update(['status' => 'FAILED']);
+                Log::warning("Webhook: Đơn {$order->order_id} thanh toán thất bại.");
+            }
+            break;
+
+        default:
+            Log::info("Webhook: Nhận được event không xử lý ({$event->type}).");
     }
+
+    // Luôn trả về 200 để Stripe biết server đã nhận thành công
+    return response()->json(['status' => 'success'], 200);
+}
 
 }
