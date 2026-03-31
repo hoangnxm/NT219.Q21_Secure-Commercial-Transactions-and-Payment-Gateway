@@ -61,7 +61,6 @@ class PaymentController extends Controller
             $force3ds = ($fraudData['action'] === 'force_3ds');
 
             // Chuyển tiếp cho Stripe(PSP)
-            $paymentToken = $request->input('payment_token');
             Stripe::setApiKey(env('STRIPE_SECRET'));
             $paymentIntent = PaymentIntent::create([
             'amount' => $amount,
@@ -144,58 +143,86 @@ class PaymentController extends Controller
         }
     }
 
-    public function handleWebhook(Request $request)
-{
-    $endpoint_secret = env('STRIPE_WEBHOOK_SECRET');
+    public function handleWebhook(Request $request) 
+    {
+        $endpoint_secret = env('STRIPE_WEBHOOK_SECRET');
 
-    // 1. Lấy raw payload và header chữ ký
-    $payload = $request->getContent();
-    $sig_header = $request->header('Stripe-Signature');
-    $event = null;
+        // 1. Lấy raw payload và header chữ ký
+        $payload = $request->getContent();
+        $sig_header = $request->header('Stripe-Signature');
+        $event = null;
 
-    // 2. Xác minh chữ ký (Nhiệm vụ 3)
-    try {
-        $event = \Stripe\Webhook::constructEvent(
-            $payload, $sig_header, $endpoint_secret
-        );
-    } catch(\UnexpectedValueException $e) {
-        // Payload không hợp lệ
-        Log::error('Webhook error: Invalid payload.');
-        return response()->json(['error' => 'Invalid payload'], 400);
-    } catch(\Stripe\Exception\SignatureVerificationException $e) {
-        // Chữ ký không hợp lệ (Hacker giả mạo)
-        Log::error('Webhook error: Invalid signature.');
-        return response()->json(['error' => 'Invalid signature'], 400);
+        // 2. Xác minh chữ ký (Nhiệm vụ 3)
+        try {
+            $event = \Stripe\Webhook::constructEvent(
+                $payload, $sig_header, $endpoint_secret
+            );
+        } catch(\UnexpectedValueException $e) {
+            // Payload không hợp lệ
+            Log::error('Webhook error: Invalid payload.');
+            return response()->json(['error' => 'Invalid payload'], 400);
+        } catch(\Stripe\Exception\SignatureVerificationException $e) {
+            // Chữ ký không hợp lệ (Hacker giả mạo)
+            Log::error('Webhook error: Invalid signature.');
+            return response()->json(['error' => 'Invalid signature'], 400);
+        }
+
+        // 3. Xử lý các Event (Nhiệm vụ 4)
+        switch ($event->type) {
+            case 'payment_intent.succeeded':
+                $paymentIntent = $event->data->object;
+                $order = Order::where('stripe_payment_id', $paymentIntent->id)->first();
+                
+                if($order){
+                    $order->update(['status' => 'SUCCESS']);
+                    Log::info("Webhook: Đơn {$order->order_id} thanh toán thành công.");
+                }
+                break;
+
+            case 'payment_intent.payment_failed':
+                $paymentIntent = $event->data->object;
+                $order = Order::where('stripe_payment_id', $paymentIntent->id)->first();
+                
+                if($order){
+                    $order->update(['status' => 'FAILED']);
+                    Log::warning("Webhook: Đơn {$order->order_id} thanh toán thất bại.");
+                }
+                break;
+
+            default:
+                Log::info("Webhook: Nhận được event không xử lý ({$event->type}).");
+        }
+
+        // Luôn trả về 200 để Stripe biết server đã nhận thành công
+        return response()->json(['status' => 'success'], 200);
     }
 
-    // 3. Xử lý các Event (Nhiệm vụ 4)
-    switch ($event->type) {
-        case 'payment_intent.succeeded':
-            $paymentIntent = $event->data->object;
-            $order = Order::where('stripe_payment_id', $paymentIntent->id)->first();
-            
-            if($order){
-                $order->update(['status' => 'SUCCESS']);
-                Log::info("Webhook: Đơn {$order->order_id} thanh toán thành công.");
-            }
-            break;
+    # API Cung cấp trạng thái để fastAPI đối soát
+    public function getStatus($order_id){
+        $order = Order::where('order_id',$order_id)->first();
 
-        case 'payment_intent.payment_failed':
-            $paymentIntent = $event->data->object;
-            $order = Order::where('stripe_payment_id', $paymentIntent->id)->first();
-            
-            if($order){
-                $order->update(['status' => 'FAILED']);
-                Log::warning("Webhook: Đơn {$order->order_id} thanh toán thất bại.");
-            }
-            break;
+        if(!$order){
+            return response()->json([
+                'error' => 'Không tìm thấy đơn hàng trên Cổng thanh toán'
+            ], 404);
+        }
 
-        default:
-            Log::info("Webhook: Nhận được event không xử lý ({$event->type}).");
+        return response()->json([
+            'order_id' => $order->order_id,
+            'amount' => $order->amount,
+            'status' => $order->status
+        ]);
     }
 
-    // Luôn trả về 200 để Stripe biết server đã nhận thành công
-    return response()->json(['status' => 'success'], 200);
-}
-
+    // API Huỷ đơn khi gặp lỗi
+    public function cancelOrder(Request $request)
+    {
+        $order = Order::where('order_id', $request->order_id)->first();
+        if ($order && $order->status === 'PENDING') {
+            $order->status = 'FAILED'; // Chuyển trạng thái thành FAILED
+            $order->save();
+            return response()->json(['message' => 'Đã hủy đơn hàng thành công']);
+        }
+        return response()->json(['error' => 'Không tìm thấy đơn hợp lệ để hủy'], 400);
+    }
 }

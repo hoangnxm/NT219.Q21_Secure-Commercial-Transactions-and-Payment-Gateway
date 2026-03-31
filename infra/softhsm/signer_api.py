@@ -41,8 +41,7 @@ async def verify_security_headers(
         raise HTTPException(status_code=403, detail="Phát hiện Replay Attack! Nonce này đã được sử dụng.")
     
     # Tách lấy chữ ký JWT (bỏ chữ Bearer đi)
-    token = authorization.split(" ")[1] if authorization else "no-token"
-
+    token = authorization.split(" ")[1] if (authorization and " " in authorization) else "no-token"
   ## 4. Xác thực HMAC (Băm cả Timestamp + Nonce + Body)
     body = await request.body()
     
