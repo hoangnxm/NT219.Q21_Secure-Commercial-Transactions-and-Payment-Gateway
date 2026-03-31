@@ -13,3 +13,5 @@ Route::post('/payments/charge', [PaymentController::class, 'charge']);
 Route::post('/webhook/stripe', [\App\Http\Controllers\Api\PaymentController::class, 'handleWebhook']);
 
 Route::get('/payments/status/{order_id}', [PaymentController::class, 'getStatus']);
+
+Route::post('/payments/cancel', [App\Http\Controllers\Api\PaymentController::class, 'cancelOrder']);

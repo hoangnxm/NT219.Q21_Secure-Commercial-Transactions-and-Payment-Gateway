@@ -28,16 +28,12 @@ PAYMENT_ORCHESTRATOR_URL = "http://localhost:8000/api/payments/charge"
 SOFTHSM_SIGNER_URL = "https://localhost:8443/api/sign"
 HMAC_SECRET = b"chuoi_bi_mat_cua_nhom_NT219"
 
-
-
 class Product(Base):
     __tablename__ = "products"
     id = Column(String, primary_key=True)
     name = Column(String)
     stock = Column(Integer)
     price = Column(Integer)
-
-
 
 class Order(Base):
     __tablename__ = "orders"
@@ -98,7 +94,7 @@ async def create_order(request: CheckoutRequest):
 
             response = await client.post(PAYMENT_ORCHESTRATOR_URL, json=pay_payload)
             if response.status_code != 200:
-                raise Exception("Thanh toán bị từ chối bởi Payment Gateway")
+                raise Exception(f"Thanh toán bị từ chối: {response.text}")
             pay_data = response.json()
             client_secret = pay_data.get("client_secret")
 
@@ -168,6 +164,13 @@ async def create_order(request: CheckoutRequest):
        
     except Exception as e:
         db.rollback()
+        
+        try:
+            # Gửi tín hiệu hủy sang Laravel
+            requests.post("http://localhost:8000/api/payments/cancel", json={"order_id": order_id}, timeout=5)
+        except Exception as cancel_err:
+            print(f"Không thể báo Laravel hủy đơn: {cancel_err}")
+        
         refund_product = db.query(Product).filter(Product.id == request.product_id).with_for_update().first()
         
         if refund_product:

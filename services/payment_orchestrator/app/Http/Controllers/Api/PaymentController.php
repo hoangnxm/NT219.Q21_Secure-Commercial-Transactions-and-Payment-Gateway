@@ -213,4 +213,16 @@ class PaymentController extends Controller
             'status' => $order->status
         ]);
     }
+
+    // API Huỷ đơn khi gặp lỗi
+    public function cancelOrder(Request $request)
+    {
+        $order = Order::where('order_id', $request->order_id)->first();
+        if ($order && $order->status === 'PENDING') {
+            $order->status = 'FAILED'; // Chuyển trạng thái thành FAILED
+            $order->save();
+            return response()->json(['message' => 'Đã hủy đơn hàng thành công']);
+        }
+        return response()->json(['error' => 'Không tìm thấy đơn hợp lệ để hủy'], 400);
+    }
 }

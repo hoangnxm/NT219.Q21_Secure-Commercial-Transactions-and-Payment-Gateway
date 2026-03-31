@@ -1,71 +1,110 @@
 import { useState } from "react";
 import { PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 
-export default function PaymentForm() {
+export default function PaymentForm({ orderData }) {
   const stripe = useStripe();
   const elements = useElements();
+  
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false); // Trạng thái kiểm tra thanh toán thành công
 
-  const [message, setMessage] = useState(null);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    
+    if (!stripe || !elements) return;
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+    setLoading(true);
+    setMessage('⏳ Đang xử lý thanh toán và xác thực bảo mật...');
 
-    // Nếu thư viện Stripe chưa load xong thì không làm gì cả
-    if (!stripe || !elements) {
-      return;
-    }
-
-    setIsProcessing(true);
-
-    // Bắt đầu luồng xác nhận thanh toán (tự động xử lý 3D-Secure nếu thẻ yêu cầu)
-    const { error } = await stripe.confirmPayment({
+    const { error, paymentIntent } = await stripe.confirmPayment({
       elements,
       confirmParams: {
-        // Sau khi thanh toán xong (hoặc gõ OTP 3DS xong), nó sẽ văng về link này.
-        // Mày có thể tạo thêm 1 trang /success để hứng nó sau.
-        return_url: "http://localhost:5173/success", 
+        return_url: window.location.origin, 
       },
+      // ĐÂY LÀ DÒNG CHÚA TỂ FIX LỖI RELOAD TRANG:
+      redirect: "if_required" 
     });
 
-    // Nếu có lỗi (sai số thẻ, hết tiền, từ chối...) thì show ra
     if (error) {
       if (error.type === "card_error" || error.type === "validation_error") {
-        setMessage(error.message);
+        setMessage(`❌ Lỗi: ${error.message}`);
       } else {
-        setMessage("Có lỗi đéo gì đó xảy ra rồi, check lại mạng hoặc thẻ test đi.");
+        setMessage("❌ Đã xảy ra lỗi không xác định. Kiểm tra lại mạng hoặc thẻ.");
       }
+      setIsSuccess(false);
+    } else if (paymentIntent && paymentIntent.status === "succeeded") {
+      setMessage(`✅ Thanh toán thành công!`);
+      setIsSuccess(true);
     }
-
-    setIsProcessing(false);
+    
+    setLoading(false);
   };
 
+  const formattedAmount = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(orderData?.amount || 0);
+
   return (
-    <form id="payment-form" onSubmit={handleSubmit} style={{ marginTop: "20px" }}>
-      {/* Đây là cái cục thần thánh chứa ô nhập số thẻ, ngày hết hạn, CVC của Stripe */}
-      <PaymentElement id="payment-element" />
+    <form onSubmit={handleSubmit} style={{ 
+      padding: '40px', backgroundColor: '#ffffff',
+      borderRadius: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)', color: '#333'
+    }}>
+      <h2 style={{ textAlign: 'center', marginBottom: '30px', color: '#000' }}>
+        🛒 CỔNG THANH TOÁN
+      </h2>
+      <p style={{ textAlign: 'center', fontWeight: 'bold', marginBottom: '20px' }}>
+        Mã đơn: {orderData?.order_id} | Tổng: {formattedAmount}
+      </p>
+
+      <div style={{ marginBottom: '25px' }}>
+        <PaymentElement />
+      </div>
 
       <button 
-        disabled={isProcessing || !stripe || !elements} 
-        id="submit"
-        style={{
-          marginTop: "20px",
-          padding: "10px 20px",
-          backgroundColor: "#5469d4",
-          color: "white",
-          border: "none",
-          borderRadius: "4px",
-          cursor: isProcessing ? "not-allowed" : "pointer",
-          width: "100%"
+        type="submit" 
+        disabled={!stripe || loading || isSuccess}
+        style={{ 
+          width: '100%', padding: '12px', 
+          backgroundColor: isSuccess ? '#2e7d32' : '#6772e5', 
+          color: 'white', border: 'none', borderRadius: '6px', 
+          fontSize: '16px', fontWeight: 'bold',
+          cursor: (loading || isSuccess) ? 'not-allowed' : 'pointer'
         }}
       >
-        <span id="button-text">
-          {isProcessing ? "Đang xử lý..." : "Thanh toán ngay"}
-        </span>
+        {loading ? 'Đang xử lý...' : isSuccess ? 'Đã thanh toán' : 'Thanh toán ngay'}
       </button>
 
-      {/* Hiển thị câu chửi/lỗi báo về từ Stripe nếu user nhập bậy */}
-      {message && <div id="payment-message" style={{ color: "red", marginTop: "10px" }}>{message}</div>}
+      {message && (
+        <div style={{ 
+          marginTop: '20px', padding: '10px', borderRadius: '4px', textAlign: 'center',
+          backgroundColor: message.includes('❌') ? '#fff0f0' : '#f0fff4',
+          color: message.includes('❌') ? '#d32f2f' : '#2e7d32',
+          fontWeight: 'bold'
+        }}>
+          {message}
+        </div>
+      )}
+
+      {/* Chỉ hiện cục JWS sau khi thẻ đã báo thành công */}
+      {isSuccess && orderData?.jws_receipt && (
+        <div style={{ 
+          marginTop: '20px', padding: '15px', backgroundColor: '#f8f9fa', 
+          border: '1px dashed #6772e5', borderRadius: '8px'
+        }}>
+          <h4 style={{ margin: '0 0 10px 0', color: '#6772e5' }}>📄 Biên lai xác thực (JWS)</h4>
+          <p style={{ fontSize: '11px', color: '#666', marginBottom: '8px' }}>
+            Mã này chứng minh phiên giao dịch đã được ký bởi hệ thống bảo mật HSM.
+          </p>
+          <code style={{ 
+            display: 'block', wordBreak: 'break-all', backgroundColor: '#eee', 
+            padding: '10px', fontSize: '10px', borderRadius: '4px', lineHeight: '1.4'
+          }}>
+            {orderData.jws_receipt}
+          </code>
+          <div style={{ marginTop: '10px', fontSize: '12px', color: 'green', fontWeight: 'bold' }}>
+            🛡️ Verified by SoftHSM
+          </div>
+        </div>
+      )}
     </form>
   );
 }
