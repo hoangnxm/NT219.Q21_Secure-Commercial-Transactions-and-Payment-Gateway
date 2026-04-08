@@ -3,12 +3,19 @@ import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
 import PaymentForm from "./PaymentForm";
 
+
 const stripePromise = loadStripe('pk_test_51TE1cpLEdwXIMzQb1PF9p7ixh7vm612NQYjL8Xu0TnxLEwvky3S7oO62fWocy132Do7sX4DFxFK96UPtu07sGBVP009X6bHnpe');
 
 export default function Checkout({ product }) {
   const [orderData, setOrderData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  
+  const options = {
+    mode: 'payment',
+    amount: product.price > 0 ? product.price : 1000,
+    currency: 'vnd',
+  };
 
   const handlePaymentSubmit = async (paymentToken) => {
     try {
@@ -41,7 +48,7 @@ export default function Checkout({ product }) {
 
   return (
     <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '20px' }}>
-      <Elements stripe={stripePromise}>
+      <Elements stripe={stripePromise} options={options}>
         <PaymentForm 
           product={product} 
           orderData={orderData} 
