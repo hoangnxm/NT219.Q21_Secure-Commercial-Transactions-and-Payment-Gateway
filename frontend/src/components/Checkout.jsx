@@ -3,17 +3,16 @@ import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
 import PaymentForm from "./PaymentForm";
 
-
 const stripePromise = loadStripe('pk_test_51TE1cpLEdwXIMzQb1PF9p7ixh7vm612NQYjL8Xu0TnxLEwvky3S7oO62fWocy132Do7sX4DFxFK96UPtu07sGBVP009X6bHnpe');
 
 export default function Checkout({ product }) {
   const [orderData, setOrderData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  
+
   const options = {
     mode: 'payment',
-    amount: product.price > 0 ? product.price : 1000,
+    amount: product?.price > 0 ? product.price : 1000,
     currency: 'vnd',
   };
 
@@ -22,6 +21,7 @@ export default function Checkout({ product }) {
       setIsLoading(true);
       setErrorMessage('');
 
+      // Gửi Payment Method ID (pm_...) sang FastAPI
       const response = await fetch('http://localhost:5000/api/orders/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -29,7 +29,7 @@ export default function Checkout({ product }) {
           product_id: product.id,
           quantity: 1,        
           email: "khachhang@example.com",
-          payment_token: paymentToken
+          payment_token: paymentToken 
         }),
       });
 
