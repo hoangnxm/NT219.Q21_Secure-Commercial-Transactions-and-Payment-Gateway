@@ -301,3 +301,10 @@ def reconcile_orders():
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+# Treo máy để lắng nghe cổng 5000, chờ Frontend gọi API tạo đơn hàng
+if __name__ == "__main__":
+    import uvicorn
+    # Chạy server tại cổng 5000
+    uvicorn.run(app, host="0.0.0.0", port=5000)

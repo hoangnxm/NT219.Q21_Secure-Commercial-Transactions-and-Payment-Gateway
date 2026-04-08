@@ -1,110 +1,99 @@
 import { useState } from "react";
 import { PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 
-export default function PaymentForm({ orderData }) {
+export default function PaymentForm({ product, orderData, onSubmit, isLoading, externalError }) {
   const stripe = useStripe();
   const elements = useElements();
-  
   const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false); // Trạng thái kiểm tra thanh toán thành công
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    
     if (!stripe || !elements) return;
 
-    setLoading(true);
-    setMessage('⏳ Đang xử lý thanh toán và xác thực bảo mật...');
+    setIsProcessing(true);
+    setMessage('⏳ Đang bảo mật giao dịch...');
 
     const { error, paymentIntent } = await stripe.confirmPayment({
       elements,
-      confirmParams: {
-        return_url: window.location.origin, 
-      },
-      // ĐÂY LÀ DÒNG CHÚA TỂ FIX LỖI RELOAD TRANG:
+      confirmParams: { return_url: window.location.origin },
       redirect: "if_required" 
     });
 
     if (error) {
-      if (error.type === "card_error" || error.type === "validation_error") {
-        setMessage(`❌ Lỗi: ${error.message}`);
-      } else {
-        setMessage("❌ Đã xảy ra lỗi không xác định. Kiểm tra lại mạng hoặc thẻ.");
-      }
-      setIsSuccess(false);
+      setMessage(`❌ ${error.message}`);
+      setIsProcessing(false);
     } else if (paymentIntent && paymentIntent.status === "succeeded") {
-      setMessage(`✅ Thanh toán thành công!`);
-      setIsSuccess(true);
+      setMessage(`✅ Thẻ hợp lệ! Đang ký biên lai SoftHSM...`);
+      await onSubmit(paymentIntent.id); 
+      setIsProcessing(false);
     }
-    
-    setLoading(false);
   };
 
-  const formattedAmount = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(orderData?.amount || 0);
+  const formattedAmount = new Intl.NumberFormat('vi-VN', { 
+    style: 'currency', currency: 'VND' 
+  }).format(product?.price || 0);
 
   return (
-    <form onSubmit={handleSubmit} style={{ 
-      padding: '40px', backgroundColor: '#ffffff',
-      borderRadius: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)', color: '#333'
-    }}>
-      <h2 style={{ textAlign: 'center', marginBottom: '30px', color: '#000' }}>
-        🛒 CỔNG THANH TOÁN
-      </h2>
-      <p style={{ textAlign: 'center', fontWeight: 'bold', marginBottom: '20px' }}>
-        Mã đơn: {orderData?.order_id} | Tổng: {formattedAmount}
-      </p>
-
-      <div style={{ marginBottom: '25px' }}>
-        <PaymentElement />
-      </div>
-
-      <button 
-        type="submit" 
-        disabled={!stripe || loading || isSuccess}
-        style={{ 
-          width: '100%', padding: '12px', 
-          backgroundColor: isSuccess ? '#2e7d32' : '#6772e5', 
-          color: 'white', border: 'none', borderRadius: '6px', 
-          fontSize: '16px', fontWeight: 'bold',
-          cursor: (loading || isSuccess) ? 'not-allowed' : 'pointer'
-        }}
-      >
-        {loading ? 'Đang xử lý...' : isSuccess ? 'Đã thanh toán' : 'Thanh toán ngay'}
-      </button>
-
-      {message && (
-        <div style={{ 
-          marginTop: '20px', padding: '10px', borderRadius: '4px', textAlign: 'center',
-          backgroundColor: message.includes('❌') ? '#fff0f0' : '#f0fff4',
-          color: message.includes('❌') ? '#d32f2f' : '#2e7d32',
-          fontWeight: 'bold'
-        }}>
-          {message}
+    <div style={styles.container}>
+      <form onSubmit={handleSubmit} style={styles.form}>
+        <div style={styles.header}>
+          <h2 style={{ margin: 0, fontSize: '22px' }}>SECURE CHECKOUT</h2>
+          <p style={{ opacity: 0.6, fontSize: '12px' }}>NT219 GATEWAY</p>
         </div>
-      )}
 
-      {/* Chỉ hiện cục JWS sau khi thẻ đã báo thành công */}
-      {isSuccess && orderData?.jws_receipt && (
-        <div style={{ 
-          marginTop: '20px', padding: '15px', backgroundColor: '#f8f9fa', 
-          border: '1px dashed #6772e5', borderRadius: '8px'
-        }}>
-          <h4 style={{ margin: '0 0 10px 0', color: '#6772e5' }}>📄 Biên lai xác thực (JWS)</h4>
-          <p style={{ fontSize: '11px', color: '#666', marginBottom: '8px' }}>
-            Mã này chứng minh phiên giao dịch đã được ký bởi hệ thống bảo mật HSM.
-          </p>
-          <code style={{ 
-            display: 'block', wordBreak: 'break-all', backgroundColor: '#eee', 
-            padding: '10px', fontSize: '10px', borderRadius: '4px', lineHeight: '1.4'
-          }}>
-            {orderData.jws_receipt}
-          </code>
-          <div style={{ marginTop: '10px', fontSize: '12px', color: 'green', fontWeight: 'bold' }}>
-            🛡️ Verified by SoftHSM
+        {/* Chỉ hiện thông tin món hàng đang mua */}
+        <div style={styles.productBox}>
+          <div style={{ textAlign: 'left' }}>
+            <span style={styles.label}>Sản phẩm</span>
+            <span style={styles.value}>{product?.name || "Chưa chọn"}</span>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <span style={styles.label}>Tổng cộng</span>
+            <span style={styles.price}>{formattedAmount}</span>
           </div>
         </div>
-      )}
-    </form>
+
+        {!orderData && (
+          <>
+            <div style={styles.stripeBox}>
+              <PaymentElement options={{ theme: 'night' }} />
+            </div>
+            <button type="submit" disabled={!stripe || isProcessing || isLoading} style={styles.btn}>
+              {isProcessing || isLoading ? 'PROCESSING...' : 'PAY NOW'}
+            </button>
+          </>
+        )}
+
+        {(message || externalError) && (
+          <div style={message.includes('❌') ? styles.errorMsg : styles.successMsg}>
+            {externalError || message}
+          </div>
+        )}
+
+        {orderData?.jws_receipt && (
+          <div style={styles.jwsBox}>
+            <h4 style={{ color: '#00f2fe', margin: '0 0 10px 0' }}>📄 BIÊN LAI XÁC THỰC (JWS)</h4>
+            <code style={styles.code}>{orderData.jws_receipt}</code>
+          </div>
+        )}
+      </form>
+    </div>
   );
 }
+
+const styles = {
+  container: { background: 'linear-gradient(135deg, #0f0c29 0%, #24243e 100%)', padding: '35px', borderRadius: '24px', border: '1px solid rgba(255,255,255,0.1)' },
+  form: { width: '400px', color: '#fff', fontFamily: 'sans-serif' },
+  header: { textAlign: 'center', marginBottom: '25px' },
+  productBox: { display: 'flex', justifyContent: 'space-between', background: 'rgba(255,255,255,0.05)', padding: '15px', borderRadius: '15px', marginBottom: '20px' },
+  label: { display: 'block', fontSize: '11px', color: '#aaa' },
+  value: { fontWeight: 'bold', fontSize: '15px' },
+  price: { fontWeight: 'bold', fontSize: '18px', color: '#00f2fe' },
+  stripeBox: { background: 'rgba(0,0,0,0.2)', padding: '15px', borderRadius: '12px', marginBottom: '20px' },
+  btn: { width: '100%', padding: '16px', background: 'linear-gradient(to right, #667eea, #764ba2)', color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer' },
+  jwsBox: { marginTop: '20px', padding: '15px', background: 'rgba(0,0,0,0.4)', borderRadius: '12px', border: '1px solid #00f2fe' },
+  code: { fontSize: '10px', wordBreak: 'break-all', color: '#00f2fe', opacity: 0.8 },
+  errorMsg: { marginTop: '15px', padding: '10px', background: 'rgba(255,0,0,0.1)', color: '#ff4757', borderRadius: '8px', textAlign: 'center' },
+  successMsg: { marginTop: '15px', padding: '10px', background: 'rgba(0,255,0,0.1)', color: '#2ed573', borderRadius: '8px', textAlign: 'center' }
+};
