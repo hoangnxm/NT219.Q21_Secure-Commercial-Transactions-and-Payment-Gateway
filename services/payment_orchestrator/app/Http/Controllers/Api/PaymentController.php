@@ -25,10 +25,7 @@ class PaymentController extends Controller
 
         try {
             // Gọi Fraud Engine xin điểm rủi ro
-            $fraudRes = Http::timeout(5)->post('http://host.docker.internal:8001/api/fraud/score',[
-                'amount' => $amount,
-                'failed_attempts' => $failedAttempts
-            ]);
+           $fraudRes = Http::timeout(5)->post('http://fraud_engine:8001/api/fraud/score', [...]);
 
             // Nếu Python lỗi và không trả data
             if (!$fraudRes->successful()) {

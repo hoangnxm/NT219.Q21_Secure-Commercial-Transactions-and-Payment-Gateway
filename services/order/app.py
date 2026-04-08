@@ -24,7 +24,7 @@ Base = declarative_base()
 
 
 
-PAYMENT_ORCHESTRATOR_URL = "http://localhost:8000/api/payments/charge"
+PAYMENT_ORCHESTRATOR_URL = "http://localhost/api/payments/charge"
 SOFTHSM_SIGNER_URL = "https://localhost:8443/api/sign"
 HMAC_SECRET = b"chuoi_bi_mat_cua_nhom_NT219"
 
@@ -167,7 +167,7 @@ async def create_order(request: CheckoutRequest):
         
         try:
             # Gửi tín hiệu hủy sang Laravel
-            requests.post("http://localhost:8000/api/payments/cancel", json={"order_id": order_id}, timeout=5)
+            requests.post("http://localhost/api/payments/cancel", json={"order_id": order_id}, timeout=5)
         except Exception as cancel_err:
             print(f"Không thể báo Laravel hủy đơn: {cancel_err}")
         
@@ -250,7 +250,7 @@ async def get_products():
 # PHẦN ĐỐI SOÁT GIAO DỊCH
 # ==========================================
 
-PAYMENT_CHECK_URL = "http://localhost:8000/api/payments/status/"
+PAYMENT_CHECK_URL = "http://localhost/api/payments/status/"
 
 @app.get("/api/orders/reconcile")
 def reconcile_orders():
