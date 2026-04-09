@@ -1,7 +1,8 @@
+// frontend/src/components/PaymentForm.jsx
 import { useState } from "react";
-import { CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import { PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 
-export default function PaymentForm({ product, orderData, onSubmit, isLoading, externalError }) {
+export default function PaymentForm({ product, orderData }) {
   const stripe = useStripe();
   const elements = useElements();
   const [message, setMessage] = useState('');
@@ -12,26 +13,24 @@ export default function PaymentForm({ product, orderData, onSubmit, isLoading, e
     if (!stripe || !elements) return;
 
     setIsProcessing(true);
-    setMessage('⏳ Đang kiểm tra thẻ...');
+    setMessage('⏳ Đang xử lý thanh toán và kiểm tra 3DS...');
 
-    // Lấy thông tin từ khung nhập thẻ
-    const cardElement = elements.getElement(CardElement);
-
-    // Tạo PaymentMethod (pm_...) thay vì confirm giao dịch ngay
-    const { error, paymentMethod } = await stripe.createPaymentMethod({
-      type: 'card',
-      card: cardElement,
+    // Xác nhận thanh toán trực tiếp với Stripe
+    const { error } = await stripe.confirmPayment({
+      elements,
+      confirmParams: {
+        return_url: `${window.location.origin}/`, 
+      },
     });
-
     if (error) {
-      setMessage(`${error.message}`);
-      setIsProcessing(false);
-    } else {
-      setMessage(`Thẻ hợp lệ!...`);
-      // Gửi ID này về cho handlePaymentSubmit
-      await onSubmit(paymentMethod.id); 
-      setIsProcessing(false);
+      if (error.type === "card_error" || error.type === "validation_error") {
+        setMessage(`❌ ${error.message}`);
+      } else {
+        setMessage("❌ Đã xảy ra lỗi không xác định.");
+      }
     }
+    
+    setIsProcessing(false);
   };
 
   const formattedAmount = new Intl.NumberFormat('vi-VN', { 
@@ -57,26 +56,20 @@ export default function PaymentForm({ product, orderData, onSubmit, isLoading, e
           </div>
         </div>
 
-        {!orderData && (
-          <>
-            <div style={styles.stripeBox}>
-              {/* CardElement: Nhập thẻ trên 1 dòng, mượt và khớp logic server */}
-              <CardElement options={{ 
-                style: { base: { color: '#fff', fontSize: '16px', '::placeholder': { color: '#aaa' } } } 
-              }} />
-            </div>
-            <button type="submit" disabled={!stripe || isProcessing || isLoading} style={styles.btn}>
-              {isProcessing || isLoading ? 'PROCESSING...' : 'PAY NOW'}
-            </button>
-          </>
-        )}
+        <div style={styles.stripeBox}>
+          {/* Thay CardElement bằng PaymentElement */}
+          <PaymentElement id="payment-element" />
+        </div>
+        
+        <button type="submit" disabled={!stripe || isProcessing} style={styles.btn}>
+          {isProcessing ? 'PROCESSING...' : 'PAY NOW'}
+        </button>
 
-        {(message || externalError) && (
+        {message && (
           <div style={message.includes('❌') ? styles.errorMsg : styles.successMsg}>
-            {externalError || message}
+            {message}
           </div>
         )}
-
         {orderData?.jws_receipt && (
           <div style={styles.jwsBox}>
             <h4 style={{ color: '#00f2fe', margin: '0 0 10px 0' }}>📄 BIÊN LAI XÁC THỰC (JWS)</h4>
@@ -87,6 +80,7 @@ export default function PaymentForm({ product, orderData, onSubmit, isLoading, e
     </div>
   );
 }
+
 
 const styles = {
   container: { background: 'linear-gradient(135deg, #0f0c29 0%, #24243e 100%)', padding: '35px', borderRadius: '24px', border: '1px solid rgba(255,255,255,0.1)' },

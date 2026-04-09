@@ -64,6 +64,17 @@ services:
                 - ping
             retries: 3
             timeout: 5s
+    fraud_engine:
+        image: python:3.11-slim
+        volumes:
+            - '../fraud_engine:/app'
+        working_dir: /app
+        command: >
+            sh -c "pip install fastapi uvicorn pandas scikit-learn && python main.py"
+        ports:
+            - "8001:8001"
+        networks:
+            - sail
 networks:
     sail:
         driver: bridge

@@ -42,7 +42,6 @@ class Order(Base):
     email = Column(String)
     quantity = Column(Integer)
     amount = Column(Integer)
-    payment_token = Column(String)
     status = Column(String, default="PENDING")  
 Base.metadata.create_all(bind=engine)
 
@@ -55,7 +54,6 @@ class CheckoutRequest(BaseModel):
     product_id: str
     quantity: int
     email: str
-    payment_token: str
 
 # ==========================================
 # PHẦN API MUA ĐƠN HÀNG
@@ -89,10 +87,10 @@ async def create_order(request: CheckoutRequest):
                 "order_id": order_id,
                 "amount": total_amount,
                 "email": request.email,
-                "payment_token": request.payment_token
             }
+            headers = {"Accept": "application/json"}
 
-            response = await client.post(PAYMENT_ORCHESTRATOR_URL, json=pay_payload)
+            response = await client.post(PAYMENT_ORCHESTRATOR_URL, json=pay_payload, headers=headers)
             if response.status_code != 200:
                 raise Exception(f"Thanh toán bị từ chối: {response.text}")
             pay_data = response.json()
@@ -145,7 +143,7 @@ async def create_order(request: CheckoutRequest):
         new_order = Order(
             id=order_id, product_id=request.product_id,
             email=request.email,quantity=request.quantity,
-            amount=total_amount,payment_token=request.payment_token,
+            amount=total_amount,
             status="SUCCESS"
         )
 
