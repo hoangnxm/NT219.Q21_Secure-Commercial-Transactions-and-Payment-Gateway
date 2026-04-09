@@ -24,7 +24,7 @@ Base = declarative_base()
 
 
 
-PAYMENT_ORCHESTRATOR_URL = "http://localhost:8000/api/payments/charge"
+PAYMENT_ORCHESTRATOR_URL = "http://localhost/api/payments/charge"
 SOFTHSM_SIGNER_URL = "https://localhost:8443/api/sign"
 HMAC_SECRET = b"chuoi_bi_mat_cua_nhom_NT219"
 
@@ -42,7 +42,6 @@ class Order(Base):
     email = Column(String)
     quantity = Column(Integer)
     amount = Column(Integer)
-    payment_token = Column(String)
     status = Column(String, default="PENDING")  
 Base.metadata.create_all(bind=engine)
 
@@ -55,7 +54,6 @@ class CheckoutRequest(BaseModel):
     product_id: str
     quantity: int
     email: str
-    payment_token: str
 
 # ==========================================
 # PHẦN API MUA ĐƠN HÀNG
@@ -89,10 +87,10 @@ async def create_order(request: CheckoutRequest):
                 "order_id": order_id,
                 "amount": total_amount,
                 "email": request.email,
-                "payment_token": request.payment_token
             }
+            headers = {"Accept": "application/json"}
 
-            response = await client.post(PAYMENT_ORCHESTRATOR_URL, json=pay_payload)
+            response = await client.post(PAYMENT_ORCHESTRATOR_URL, json=pay_payload, headers=headers)
             if response.status_code != 200:
                 raise Exception(f"Thanh toán bị từ chối: {response.text}")
             pay_data = response.json()
@@ -145,7 +143,7 @@ async def create_order(request: CheckoutRequest):
         new_order = Order(
             id=order_id, product_id=request.product_id,
             email=request.email,quantity=request.quantity,
-            amount=total_amount,payment_token=request.payment_token,
+            amount=total_amount,
             status="SUCCESS"
         )
 
@@ -167,7 +165,7 @@ async def create_order(request: CheckoutRequest):
         
         try:
             # Gửi tín hiệu hủy sang Laravel
-            requests.post("http://localhost:8000/api/payments/cancel", json={"order_id": order_id}, timeout=5)
+            requests.post("http://localhost/api/payments/cancel", json={"order_id": order_id}, timeout=5)
         except Exception as cancel_err:
             print(f"Không thể báo Laravel hủy đơn: {cancel_err}")
         
@@ -250,7 +248,7 @@ async def get_products():
 # PHẦN ĐỐI SOÁT GIAO DỊCH
 # ==========================================
 
-PAYMENT_CHECK_URL = "http://localhost:8000/api/payments/status/"
+PAYMENT_CHECK_URL = "http://localhost/api/payments/status/"
 
 @app.get("/api/orders/reconcile")
 def reconcile_orders():
@@ -301,3 +299,10 @@ def reconcile_orders():
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+# Treo máy để lắng nghe cổng 5000, chờ Frontend gọi API tạo đơn hàng
+if __name__ == "__main__":
+    import uvicorn
+    # Chạy server tại cổng 5000
+    uvicorn.run(app, host="0.0.0.0", port=5000)

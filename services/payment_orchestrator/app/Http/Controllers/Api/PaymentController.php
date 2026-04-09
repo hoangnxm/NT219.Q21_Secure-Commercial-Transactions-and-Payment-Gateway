@@ -24,9 +24,10 @@ class PaymentController extends Controller
         $failedAttempts = $request->input('failed_attempts', 0);
 
         try {
-            // Gọi Fraud Engine xin điểm rủi ro
-            $fraudRes = Http::timeout(5)->post('http://host.docker.internal:8001/api/fraud/score',[
+           $fraudRes = Http::timeout(5)->post('http://host.docker.internal:8001/api/fraud/score', [
                 'amount' => $amount,
+                'order_id' => $orderId,
+                'email' => $email,
                 'failed_attempts' => $failedAttempts
             ]);
 
