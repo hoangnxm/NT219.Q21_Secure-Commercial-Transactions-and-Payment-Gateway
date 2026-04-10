@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 
-export default function PaymentForm({ product, orderData }) {
+export default function PaymentForm({ product, orderData, userEmail }) {
   const stripe = useStripe();
   const elements = useElements();
   const [message, setMessage] = useState('');
@@ -16,26 +16,44 @@ export default function PaymentForm({ product, orderData }) {
     setMessage('⏳ Đang xử lý thanh toán và kiểm tra 3DS...');
 
     // Xác nhận thanh toán trực tiếp với Stripe
-    const { error } = await stripe.confirmPayment({
+    const { paymentIntent, error } = await stripe.confirmPayment({
       elements,
       confirmParams: {
         return_url: `${window.location.origin}/`, 
       },
+      redirect: "if_required",
     });
+
+    // Xử lí kết quả
     if (error) {
+      setIsProcessing(false);
       if (error.type === "card_error" || error.type === "validation_error") {
         setMessage(`❌ ${error.message}`);
       } else {
-        setMessage("❌ Đã xảy ra lỗi không xác định.");
+        setMessage("❌ Lỗi: " + error.message);
       }
+    } 
+    // Check status phải là paymentIntent.status
+    else if(paymentIntent && paymentIntent === 'succeeded'){
+      setMessage("✅ Thanh toán thành công! Đơn hàng của bạn đang được xử lý.");
+      setIsProcessing(false);
+    } else {
+      setMessage("⏳ Trạng thái: " + (paymentIntent?.status || "Đang xử lý..."));
+      setIsProcessing(false);
     }
-    
-    setIsProcessing(false);
   };
 
   const formattedAmount = new Intl.NumberFormat('vi-VN', { 
     style: 'currency', currency: 'VND' 
   }).format(product?.price || 0);
+
+  const paymentElementOptions = {
+    defaultValues: {
+      billingDetails: {
+        email: userEmail,
+      }
+    }
+  };
 
   return (
     <div style={styles.container}>
@@ -57,8 +75,7 @@ export default function PaymentForm({ product, orderData }) {
         </div>
 
         <div style={styles.stripeBox}>
-          {/* Thay CardElement bằng PaymentElement */}
-          <PaymentElement id="payment-element" />
+          <PaymentElement id="payment-element" options={paymentElementOptions}/>
         </div>
         
         <button type="submit" disabled={!stripe || isProcessing} style={styles.btn}>

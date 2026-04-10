@@ -24,8 +24,8 @@ Base = declarative_base()
 
 
 
-PAYMENT_ORCHESTRATOR_URL = "http://localhost/api/payments/charge"
-SOFTHSM_SIGNER_URL = "https://localhost:8443/api/sign"
+PAYMENT_ORCHESTRATOR_URL = "http://laravel.test/api/payments/charge"
+SOFTHSM_SIGNER_URL = "https://host.docker.internal:8443/api/sign"
 HMAC_SECRET = b"chuoi_bi_mat_cua_nhom_NT219"
 
 class Product(Base):
@@ -102,6 +102,9 @@ async def create_order(request: CheckoutRequest):
         ca_path = os.path.join(BASE_DIR, "ca.crt")
         cert_path = os.path.join(BASE_DIR, "client.crt")
         key_path = os.path.join(BASE_DIR, "client.key")
+ 
+        # In ra terminal để mày kiểm tra xem nó có trỏ đúng file không        
+        print(f"DEBUG: Đang dùng CA tại: {ca_path}")
 
         payload_str = f'{{"payload": "HoaDon_{order_id}_{total_amount}VND"}}'          
         timestamp = str(int(time.time()))
@@ -117,25 +120,22 @@ async def create_order(request: CheckoutRequest):
         }
 
         # TẠO BỘ LỌC ĐỂ BỎ QUA CHECK "LOCALHOST" NHƯNG VẪN CHECK CA
-        class HostNameIgnoreAdapter(HTTPAdapter):
-            def init_poolmanager(self, *args, **kwargs):
-                context = ssl.create_default_context(cafile=ca_path)
-                context.load_cert_chain(certfile=cert_path, keyfile=key_path)
-                context.check_hostname = False # TẮT SOI TÊN MIỀN Ở ĐÂY
-                kwargs['ssl_context'] = context
-                return super(HostNameIgnoreAdapter, self).init_poolmanager(*args, **kwargs)
-
-            def cert_verify(self, conn, url, verify, cert):
-                conn.assert_hostname = False
-                return super(HostNameIgnoreAdapter, self).cert_verify(conn, url, verify, cert)
+        try:
+            res_sign = requests.post(
+                SOFTHSM_SIGNER_URL, # Dùng localhost cho khớp Cert
+                data=payload_str, 
+                headers=headers, 
+                timeout=30,
+                verify=ca_path,            # Xác thực Server
+                cert=(cert_path, key_path) # Xác thực Client
+            )
             
-        with requests.Session() as session:
-            session.mount('https://', HostNameIgnoreAdapter())
-            # Gọi SoftHSM bằng session đã được độ lại
-            res_sign = session.post(SOFTHSM_SIGNER_URL, data=payload_str, headers=headers, timeout=30)
+            if res_sign.status_code != 200:
+                raise Exception(f"SoftHSM lỗi {res_sign.status_code}: {res_sign.text}")
 
-        if res_sign.status_code != 200:
-            raise Exception(f"SoftHSM lỗi {res_sign.status_code}: {res_sign.text}")
+        except Exception as sign_err:
+            print(f"Lỗi mTLS thật sự: {sign_err}")
+            raise sign_err
 
         jws_receipt = res_sign.json().get("signature", "SIGNING_FAILED")
         
@@ -165,7 +165,7 @@ async def create_order(request: CheckoutRequest):
         
         try:
             # Gửi tín hiệu hủy sang Laravel
-            requests.post("http://localhost/api/payments/cancel", json={"order_id": order_id}, timeout=5)
+            requests.post("http://laravel.test/api/payments/cancel", json={"order_id": order_id}, timeout=5)
         except Exception as cancel_err:
             print(f"Không thể báo Laravel hủy đơn: {cancel_err}")
         
@@ -248,7 +248,7 @@ async def get_products():
 # PHẦN ĐỐI SOÁT GIAO DỊCH
 # ==========================================
 
-PAYMENT_CHECK_URL = "http://localhost/api/payments/status/"
+PAYMENT_CHECK_URL = "http://laravel.test/api/payments/status/"
 
 @app.get("/api/orders/reconcile")
 def reconcile_orders():

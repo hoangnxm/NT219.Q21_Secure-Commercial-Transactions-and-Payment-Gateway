@@ -31,3 +31,13 @@ build/
 venv/
 storage/certs/
 *.txt
+
+# Bỏ qua tất cả file CSV
+*.csv
+
+# Tiện tay bỏ qua luôn mấy thứ nhạy cảm/nặng này
+.env
+**/__pycache__/
+vendor/
+node_modules/
+storage/logs/
