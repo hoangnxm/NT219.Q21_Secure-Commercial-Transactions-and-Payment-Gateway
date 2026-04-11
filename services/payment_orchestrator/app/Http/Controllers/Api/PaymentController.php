@@ -10,6 +10,7 @@ use Stripe\PaymentIntent;
 use Illuminate\Support\Facades\Http;
 use Nette\Utils\Json;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 class PaymentController extends Controller
 {
@@ -17,19 +18,37 @@ class PaymentController extends Controller
     {
         Stripe::setApiKey(env('STRIPE_SECRET'));
 
-       // Nhận dữ liệu từ backend của Ngô Hoàng
-        $amount = $request->input('amount', 50000); 
+       // Nhận dữ liệu từ backend
+        $amount = $request->input('amount'); 
         $orderId = $request->input('order_id');
-        $email = $request->input('email'); // Nhiệm vụ 1: Lấy thêm email
-        $failedAttempts = $request->input('failed_attempts', 0);
+        $email = trim($request->input('email'));
+
+        // LOG ĐỂ SOI DỮ LIỆU
+        Log::info("--- TEST GIAO DICH ---");
+        Log::info("Email nhan duoc: '" . $email . "'");
+
+        // Phân tích device
+        $userAgent = $request->header('User-Agent');
+        $device = str_contains(strtolower($userAgent),'mobile')? "Mobile" : "Desktop";
+
+        // Đếm số lần failed trong DB thay vì request trong 30P trước
+        $failedAttempts = Order::where('email',$email)
+                                ->where('status','FAILED')
+                                ->where('created_at', '>=', Carbon::now()->subMinutes(30))
+                                ->count();
+
+        // Đóng gói đem đi chấm điểm
+        $fraudPayload = [
+            'amount' => (float) $amount,
+            'email' => $email,
+            'ip_address' => $request->ip()??"127.0.0.1",
+            'device' => $device,
+            'failed_attempts' => $failedAttempts,
+            'hour_of_day' => Carbon::now()->hour
+        ];
 
         try {
-           $fraudRes = Http::timeout(5)->post('http://host.docker.internal:8001/api/fraud/score', [
-                'amount' => $amount,
-                'order_id' => $orderId,
-                'email' => $email,
-                'failed_attempts' => $failedAttempts
-            ]);
+           $fraudRes = Http::timeout(5)->post('http://fraud_engine:8001/api/fraud/score', $fraudPayload);
 
             // Nếu Python lỗi và không trả data
             if (!$fraudRes->successful()) {
@@ -41,8 +60,11 @@ class PaymentController extends Controller
 
             $fraudData = $fraudRes->json();
 
+            Log::info("AI Decision: " . $fraudData['action'] . " (Score: " . $fraudData['score'] . ")");
+
             $order = Order::create([
                 'order_id' => $orderId,
+                'email' => $email,
                 'amount' => $amount,
                 'fraud_score' => $fraudData['score'],
                 'fraud_action' => $fraudData['action'],
@@ -51,6 +73,15 @@ class PaymentController extends Controller
 
             // Xử lí theo quyết định AI
             if($fraudData['action'] === 'block'){
+                $this->logSecurityEvent('FRAUD_BLOCK_ACTION', [
+                    'order_id' => $orderId,
+                    'email' => $email,
+                    'fraud_score' => $fraudData['score'],
+                    'reason' => $fraudData['reason'],
+                    'ip' => $request->ip()
+                ]);
+
+
                 return response()->json([
                     'error' => "Giao dịch bị từ chối do rủi ro gian lận cao",
                     'fraud_score' => $fraudData['score'],
@@ -140,7 +171,13 @@ class PaymentController extends Controller
     ]);
 
         } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            Log::error("FRAUD ENGINE CONNECTION ERROR: " . $e->getMessage());
+
+            return response()->json([
+                'error' => 'Không thể kết nối với hệ thống AI Fraud Engine!',
+                'detail' => $e->getMessage(),
+                'suggestion' => 'Kiểm tra xem container Fraud Engine đã bật chưa hoặc sai URL http://fraud_engine:8001'
+            ], 500);
         }
     }
 
@@ -176,6 +213,14 @@ class PaymentController extends Controller
                 
                 if($order){
                     $order->update(['status' => 'SUCCESS']);
+
+                    $this->logSecurityEvent('PAYMENT_SUCCESS_FINAL', [
+                        'order_id' => $order->order_id,
+                        'stripe_id' => $paymentIntent->id,
+                        'amount' => $paymentIntent->amount / 100,
+                        'currency' => $paymentIntent->currency
+                    ]);
+
                     Log::info("Webhook: Đơn {$order->order_id} thanh toán thành công.");
                 }
                 break;
@@ -186,6 +231,13 @@ class PaymentController extends Controller
                 
                 if($order){
                     $order->update(['status' => 'FAILED']);
+
+                    $this->logSecurityEvent('PAYMENT_FAILED_ALERT', [
+                        'order_id' => $order->order_id,
+                        'stripe_id' => $paymentIntent->id,
+                        'error_message' => $paymentIntent->last_payment_error ? $paymentIntent->last_payment_error->message : 'Unknown error'
+                    ]);
+
                     Log::warning("Webhook: Đơn {$order->order_id} thanh toán thất bại.");
                 }
                 break;
@@ -225,5 +277,32 @@ class PaymentController extends Controller
             return response()->json(['message' => 'Đã hủy đơn hàng thành công']);
         }
         return response()->json(['error' => 'Không tìm thấy đơn hợp lệ để hủy'], 400);
+    }
+
+    private function logSecurityEvent($event, $data){
+        $payload = json_encode($data);
+        $timestamp = time();
+        $nonce = bin2hex(random_bytes(16));
+
+        // Gửi sang Softhsm để ký niêm phong bảng log
+        try{
+            $response = Http::withOptions(['verify' => false])
+                ->withHeaders([
+                    'X-Signature' => hash_hmac('sha256', $timestamp . $payload, env('HMAC_SECRET')),
+                    'X-Timestamp' => $timestamp,
+                    'X-Nonce' => $nonce
+                ])
+                ->post('https://host.docker.internal:8443/api/sign', ['payload' => $payload]);
+
+            if($response->successful()){
+                \App\Models\AuditLog::create([
+                    'event' => $event,
+                    'payload' => $payload,
+                    'signature' => $response->json('signature') // Lưu chữ kí vào DB
+                ]);
+            }
+        }catch(\Exception $e){
+            Log::error("Không thể ghi Audit Log bảo mật: " . $e->getMessage());
+        }
     }
 }

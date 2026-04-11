@@ -50,7 +50,7 @@ async def verify_security_headers(
     data_to_hash = f"{x_timestamp}.{x_nonce}.{body_text}".encode('utf-8')
     expected_mac = hmac.new(SHARED_SECRET, data_to_hash, hashlib.sha256).hexdigest()
     
-    # In ra log của Docker để bắt quả tang lỗi
+    # In ra log của Docker để bắt lỗi
     print("--- DEBUG HMAC ---")
     print(f"Server tự băm: {expected_mac}")
     print(f"Client gửi tới: {x_signature}")

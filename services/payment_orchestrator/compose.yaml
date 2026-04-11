@@ -1,3 +1,5 @@
+include:
+  - ../../infra/softhsm/docker-compose.yml
 services:
     laravel.test:
         build:
@@ -35,7 +37,7 @@ services:
             POSTGRES_PASSWORD: '${DB_PASSWORD:-secret}'
         volumes:
             - 'sail-pgsql:/var/lib/postgresql'
-            - './vendor/laravel/sail/database/pgsql/create-testing-database.sql:/docker-entrypoint-initdb.d/10-create-testing-database.sql'
+            # - './vendor/laravel/sail/database/pgsql/create-testing-database.sql:/docker-entrypoint-initdb.d/10-create-testing-database.sql'
         networks:
             - sail
         healthcheck:
@@ -73,6 +75,15 @@ services:
             sh -c "pip install fastapi uvicorn pandas scikit-learn && python main.py"
         ports:
             - "8001:8001"
+        networks:
+            - sail
+    order:
+        build:
+            context: '../order'
+        volumes:
+            - '../order:/app'
+        ports:
+            - "5000:5000"
         networks:
             - sail
 networks:

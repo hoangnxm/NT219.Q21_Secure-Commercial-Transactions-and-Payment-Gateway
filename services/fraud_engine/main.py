@@ -2,70 +2,99 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import LabelEncoder
+import os
 
 app = FastAPI()
 
-print("Training AI chống gian lận...")
-# Dữ liệu mẫu
-data = {
-    'amount': [50000, 2000000, 15000000, 50000, 8000000, 20000000],
-    'failed_attempts': [0, 1, 3, 0, 2, 4],
-    'is_fraud': [0, 0, 1, 0, 1, 1]
-}
-df = pd.DataFrame(data)
-model = RandomForestClassifier(random_state=42)
-# Training AI học từ data
-model.fit(df[['amount', 'failed_attempts']], df['is_fraud'])
-print("AI ready")
+# Huấn luyện AI từ Kaggle
+def train_fraud_model():
+    file_path = "Fraudulent_E-Commerce_Transaction_Data.csv"
+    
+    print("Đang đọc dataset Kaggle....")
+    # Data rất lớn hơn 1 triệu dòng nên cho đọc 100k dòng cho đỡ lag
+    df = pd.read_csv(file_path)
+    
+    # Chuyển cột chữ thành số
+    le_device = LabelEncoder()
+    df['Device Used'] = le_device.fit_transform(df['Device Used'].astype(str))
+    
+    features = ['Transaction Amount', 'Device Used']
+    X = df[features]
+    y = df['Is Fraudulent']
+    
+    model = RandomForestClassifier(n_estimators=50, max_depth=10, random_state=42)
+    model.fit(X, y)
+    
+    print("✅ AI đã học xong từ dữ liệu Kaggle!")
+    return model, le_device
 
-# Tạo API để Laravel gọi
-class Transaction(BaseModel):
+# Khởi tạo AI
+ML_MODEL, LE_DEVICE = train_fraud_model()
+
+# API cho laravel gọi
+class TransactionRequest(BaseModel):
     amount: float
+    email: str
+    ip_address: str
+    device: str           
     failed_attempts: int
-
+    hour_of_day: int
+    
 @app.post("/api/fraud/score")
-def score_fraud(tx: Transaction):
-    # TẦNG 1: RULE-BASED ENGINE
-    # Quy tắc 1: Chặn nếu số tiền quá lớn (giữ nguyên của bạn)
-    if tx.amount > 100000000:
-        return {"action": "block", "score": 99, "reason": "Rule: Số tiền vượt ngưỡng 100 triệu"}
-
-    # Quy tắc 2: Chặn nếu thử sai quá nhiều lần (Mới)
+def fraud_score(tx: TransactionRequest):
+    # ---------------------------------------------------------
+    # TẦNG 1: LUẬT CỨNG (RULE-BASED) - Block nếu vi phạm
+    # ---------------------------------------------------------
+    
+    # Luật 1: Dùng mail rác
+    trash_emails = ['mailinator.com', '10minutemail.com', 'temp-mail.org', 'dispostable.com']
+    if any(domain in tx.email for domain in trash_emails):
+        return {"action": "block", "score": 95, "reason": "Rule: Khách dùng Email ảo/rác"}
+    
+    # Luật 2: Thử sai quá nhiều
     if tx.failed_attempts >= 5:
-        return {"action": "block", "score": 100, "reason": "Rule: Thử sai quá 5 lần"}
+        return {"action": "block", "score": 100, "reason": "Rule: Thử sai quá 5 lần (Card-testing attack)"}
 
-    # Quy tắc 3: Ép 3DS ngay nếu giao dịch giá trị cao và có tiền sử thử sai
-    if tx.amount > 10000000 and tx.failed_attempts >= 1:
-        return {"action": "force_3ds", "score": 60, "reason": "Rule: Giao dịch lớn kèm thử sai"}
+    # Luật 3: Giao dịch nửa đêm
+    if 0 <= tx.hour_of_day <= 4 and tx.amount > 10000000:
+        return {"action": "force_3ds", "score": 65, "reason": "Rule: Giao dịch lớn vào khung giờ nhạy cảm (0h-4h sáng)"}
 
-    # TẦNG 2: ML ENGINE
-    # Tính xác suất lừa đảo (từ 0.0 -> 1.0)
-    prob = model.predict_proba([[tx.amount, tx.failed_attempts]])[0][1]
-    score = int(prob * 100)
+    # ---------------------------------------------------------
+    # TẦNG 2: ML ENGINE (AI CHẤM ĐIỂM)
+    # ---------------------------------------------------------
+    
+    try:
+        device_map = {"Desktop": 0, "Mobile": 1, "Tablet": 2}
+        d_code = device_map.get(tx.device, 0)
 
-    # MA TRẬN QUYẾT ĐỊNH
-    if score >= 70:
-        action = "block"        # Nguy hiểm -> Chặn luôn
-    elif score >= 30:
-        action = "force_3ds"    # Khả nghi -> Ép xác thực OTP (SCA)
+        amount_for_ai = tx.amount / 25000
+                
+        input_data = [[amount_for_ai, d_code]]
+        prob =  ML_MODEL.predict_proba(input_data)[0][1]
+        score = int(prob * 100)
+    except Exception as e:
+        print(f"⚠️ Lỗi AI: {e}")
+        score = 20
+    
+    # ---------------------------------------------------------
+    # TẦNG 3: MA TRẬN QUYẾT ĐỊNH
+    # ---------------------------------------------------------
+    
+    if score >= 85:
+        action = "block"
+    elif score >= 40:
+        action = "force_3ds"
     else:
-        action = "allow"        # An toàn -> Cho qua bình thường
+        action = "allow"
 
     return {
         "action": action, 
         "score": score, 
-        "reason": f"ML Model Predict (Probability: {prob:.2f})"
+        "reason": f"AI Risk Scoring: {score}/100"
     }
 
 if __name__ == "__main__":
-    print("\n--- BÁO CÁO ĐO ĐẠC AI (CHO SLIDE THUYẾT TRÌNH) ---")
-    # Tự test lại trên chính tập data để lấy chỉ số
-    predictions = model.predict(df[['amount', 'failed_attempts']])
-    from sklearn.metrics import accuracy_score
-    acc = accuracy_score(df['is_fraud'], predictions) * 100
-    print(f"✅ Độ chính xác của mô hình (Accuracy): {acc:.2f}%")
-    print("✅ Các luật (Rules) Tầng 1 đã được kích hoạt thành công.")
-    print("--------------------------------------------------\n")
     
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8001)
