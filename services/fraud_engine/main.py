@@ -13,7 +13,7 @@ def train_fraud_model():
     
     print("Đang đọc dataset Kaggle....")
     # Data rất lớn hơn 1 triệu dòng nên cho đọc 100k dòng cho đỡ lag
-    df = pd.read_csv(file_path, nrows=100000)
+    df = pd.read_csv(file_path)
     
     # Chuyển cột chữ thành số
     le_device = LabelEncoder()
