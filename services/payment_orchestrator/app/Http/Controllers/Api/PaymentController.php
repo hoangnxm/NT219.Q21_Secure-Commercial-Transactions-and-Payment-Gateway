@@ -48,7 +48,7 @@ class PaymentController extends Controller
         ];
 
         try {
-           $fraudRes = Http::timeout(5)->post('http://fraud_engine:8001/api/fraud/score', $fraudPayload);
+           $fraudRes = Http::timeout(5)->post('http://fraud-engine-service.nt219-project.svc.cluster.local:8001/api/fraud/score', $fraudPayload);
 
             // Nếu Python lỗi và không trả data
             if (!$fraudRes->successful()) {
@@ -139,7 +139,7 @@ class PaymentController extends Controller
                     'X-Timestamp' => $timestamp,
                     'X-Nonce' => $nonce,
                 ])->withBody($finalJson,'application/json')
-                ->post('https://host.docker.internal:8443/api/sign');
+                ->post('https://softhsm.nt219-project.svc.cluster.local:8888/api/sign');
 
                 if($signRes->successful()){
                     $jwsSignature = $signRes->json('signature');
@@ -292,7 +292,7 @@ class PaymentController extends Controller
                     'X-Timestamp' => $timestamp,
                     'X-Nonce' => $nonce
                 ])
-                ->post('https://host.docker.internal:8443/api/sign', ['payload' => $payload]);
+                ->post('https://softhsm.nt219-project.svc.cluster.local:8888/api/sign', ['payload' => $payload]);
 
             if($response->successful()){
                 \App\Models\AuditLog::create([

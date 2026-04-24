@@ -7,6 +7,9 @@ export default function PaymentForm({ product, orderData, userEmail }) {
   const elements = useElements();
   const [message, setMessage] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  
+  // NHỊP 3: Thêm State để lưu Biên lai mTLS sau khi thanh toán xong
+  const [receipt, setReceipt] = useState(null);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -33,10 +36,33 @@ export default function PaymentForm({ product, orderData, userEmail }) {
         setMessage("❌ Lỗi: " + error.message);
       }
     } 
-    // Check status phải là paymentIntent.status
-    else if(paymentIntent && paymentIntent === 'succeeded'){
-      setMessage("✅ Thanh toán thành công! Đơn hàng của bạn đang được xử lý.");
-      setIsProcessing(false);
+    // NHỊP 2: Check Stripe báo thành công
+    else if (paymentIntent && paymentIntent.status === 'succeeded') {
+      setMessage("✅ Thanh toán thành công! Đang lấy biên lai an toàn...");
+      
+      // NHỊP 3: Gọi Backend xác nhận và lấy Biên lai SoftHSM
+      try {
+        const confirmRes = await fetch('http://localhost:5000/api/orders/confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order_id: orderData.order_id })
+        });
+        
+        const confirmData = await confirmRes.json();
+
+        if (confirmRes.ok && confirmData.status === 'success') {
+          setMessage("✅ Giao dịch hoàn tất! Đã ký biên lai an toàn.");
+          // Lưu biên lai vào State để xổ cái bảng xanh lè ra
+          setReceipt(confirmData.jws_receipt);
+        } else {
+          setMessage("⚠️ Thanh toán OK nhưng lỗi lấy biên lai: " + (confirmData.detail || "Lỗi không xác định"));
+        }
+      } catch (err) {
+        setMessage("⚠️ Thanh toán OK nhưng không thể kết nối tới Server để lấy biên lai.");
+      } finally {
+        setIsProcessing(false);
+      }
+
     } else {
       setMessage("⏳ Trạng thái: " + (paymentIntent?.status || "Đang xử lý..."));
       setIsProcessing(false);
@@ -83,21 +109,22 @@ export default function PaymentForm({ product, orderData, userEmail }) {
         </button>
 
         {message && (
-          <div style={message.includes('❌') ? styles.errorMsg : styles.successMsg}>
+          <div style={message.includes('❌') || message.includes('⚠️') ? styles.errorMsg : styles.successMsg}>
             {message}
           </div>
         )}
-        {orderData?.jws_receipt && (
+        
+        {/* Render JWS từ State 'receipt' thay vì 'orderData.jws_receipt' */}
+        {receipt && (
           <div style={styles.jwsBox}>
             <h4 style={{ color: '#00f2fe', margin: '0 0 10px 0' }}>📄 BIÊN LAI XÁC THỰC (JWS)</h4>
-            <code style={styles.code}>{orderData.jws_receipt}</code>
+            <code style={styles.code}>{receipt}</code>
           </div>
         )}
       </form>
     </div>
   );
 }
-
 
 const styles = {
   container: { background: 'linear-gradient(135deg, #0f0c29 0%, #24243e 100%)', padding: '35px', borderRadius: '24px', border: '1px solid rgba(255,255,255,0.1)' },

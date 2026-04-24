@@ -22,10 +22,10 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+PAYMENT_ORCHESTRATOR_URL = "http://api-gateway-service.nt219-project.svc.cluster.local/payment/api/payments/charge"
+SOFTHSM_SIGNER_URL = "https://softhsm.nt219-project.svc.cluster.local:8888/api/sign"
+PAYMENT_CHECK_URL = "http://api-gateway-service.nt219-project.svc.cluster.local/payment/api/payments/status/"
 
-
-PAYMENT_ORCHESTRATOR_URL = "http://laravel.test/api/payments/charge"
-SOFTHSM_SIGNER_URL = "https://host.docker.internal:8443/api/sign"
 HMAC_SECRET = b"chuoi_bi_mat_cua_nhom_NT219"
 
 class Product(Base):
@@ -43,9 +43,8 @@ class Order(Base):
     quantity = Column(Integer)
     amount = Column(Integer)
     status = Column(String, default="PENDING")  
+
 Base.metadata.create_all(bind=engine)
-
-
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -55,17 +54,17 @@ class CheckoutRequest(BaseModel):
     quantity: int
     email: str
 
-# ==========================================
-# PHẦN API MUA ĐƠN HÀNG
-# ==========================================
+class ConfirmRequest(BaseModel):
+    order_id: str
 
+# ==========================================
+# MODULE 1: KHỞI TẠO ĐƠN HÀNG (CHƯA KÝ SOFTHSM)
+# ==========================================
 @app.post("/api/orders/create")
-
 async def create_order(request: CheckoutRequest):
     db = SessionLocal()
 
     try:
-        # 1. TÌM VÀ KHÓA DÒNG DỮ LIỆU SẢN PHẨM (Pessimistic Locking)
         product = db.query(Product).filter(Product.id == request.product_id).with_for_update().first()
         if not product:
             db.close()
@@ -74,14 +73,12 @@ async def create_order(request: CheckoutRequest):
             db.close()
             raise HTTPException(status_code=400, detail="Hết hàng!")
 
-        # 2. GIỮ CHỖ KHO VÀ CHỐT SỔ NGAY LẬP TỨC ĐỂ NHẢ KHÓA
         product.stock -= request.quantity
         db.commit()
 
         order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"    
         total_amount = product.price * request.quantity
 
-        # 3. GỌI PAYMENT ORCHESTRATOR ĐỂ TRỪ TIỀN
         async with httpx.AsyncClient(timeout=30.0) as client:
             pay_payload = {
                 "order_id": order_id,
@@ -96,17 +93,58 @@ async def create_order(request: CheckoutRequest):
             pay_data = response.json()
             client_secret = pay_data.get("client_secret")
 
-       
-        # 4. GỌI SOFTHSM KÝ BIÊN LAI
-        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-        ca_path = os.path.join(BASE_DIR, "ca.crt")
-        cert_path = os.path.join(BASE_DIR, "client.crt")
-        key_path = os.path.join(BASE_DIR, "client.key")
- 
-        # In ra terminal để mày kiểm tra xem nó có trỏ đúng file không        
-        print(f"DEBUG: Đang dùng CA tại: {ca_path}")
+        # LƯU ĐƠN HÀNG VỚI TRẠNG THÁI PENDING (CHỜ KHÁCH QUẸT THẺ)
+        new_order = Order(
+            id=order_id, product_id=request.product_id,
+            email=request.email, quantity=request.quantity,
+            amount=total_amount,
+            status="PENDING"
+        )
 
-        payload_str = f'{{"payload": "HoaDon_{order_id}_{total_amount}VND"}}'          
+        db.add(new_order)
+        db.commit()
+
+        print(f"✅ Đã tạo đơn {order_id} (PENDING). Kho còn: {product.stock}")
+
+        # KHÔNG GỌI SOFTHSM Ở ĐÂY NỮA
+        return {
+            "status": "success",
+            "order_id": order_id,   
+            "amount": total_amount,
+            "client_secret": client_secret
+        }
+       
+    except Exception as e:
+        db.rollback()
+        refund_product = db.query(Product).filter(Product.id == request.product_id).with_for_update().first()
+        if refund_product:
+            refund_product.stock += request.quantity
+            db.commit()
+        raise HTTPException(status_code=500, detail=f"Lỗi khởi tạo đơn: {str(e)}")
+    finally:
+        db.close()
+
+# ==========================================
+# MODULE 2: XÁC THỰC THÀNH CÔNG VÀ KÝ BIÊN LAI
+# ==========================================
+@app.post("/api/orders/confirm")
+async def confirm_order(request: ConfirmRequest):
+    db = SessionLocal()
+    try:
+        # TÌM LẠI ĐƠN HÀNG ĐANG CHỜ
+        order = db.query(Order).filter(Order.id == request.order_id).with_for_update().first()
+        if not order:
+            raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+        
+        if order.status == "SUCCESS":
+            return {"status": "success", "message": "Đơn hàng đã được xác nhận từ trước"}
+
+        # GỌI SOFTHSM KÝ BIÊN LAI (MẶC GIÁP mTLS)
+        ca_path = "/etc/certs/ca.crt"
+        cert_path = "/etc/certs/client.crt"
+        key_path = "/etc/certs/client.key"
+ 
+        payload_str = f'{{"payload": "HoaDon_{order.id}_{order.amount}VND"}}'          
         timestamp = str(int(time.time()))
         nonce = uuid.uuid4().hex
         data_to_hash = f"{timestamp}.{nonce}.{payload_str}".encode('utf-8')
@@ -119,15 +157,14 @@ async def create_order(request: CheckoutRequest):
             "Content-Type": "application/json"
         }
 
-        # TẠO BỘ LỌC ĐỂ BỎ QUA CHECK "LOCALHOST" NHƯNG VẪN CHECK CA
         try:
             res_sign = requests.post(
-                SOFTHSM_SIGNER_URL, # Dùng localhost cho khớp Cert
+                SOFTHSM_SIGNER_URL, 
                 data=payload_str, 
                 headers=headers, 
                 timeout=30,
-                verify=ca_path,            # Xác thực Server
-                cert=(cert_path, key_path) # Xác thực Client
+                verify=False,            
+                cert=(cert_path, key_path) 
             )
             
             if res_sign.status_code != 200:
@@ -139,49 +176,26 @@ async def create_order(request: CheckoutRequest):
 
         jws_receipt = res_sign.json().get("signature", "SIGNING_FAILED")
         
-        # 5. LƯU ĐƠN HÀNG VÀO DB
-        new_order = Order(
-            id=order_id, product_id=request.product_id,
-            email=request.email,quantity=request.quantity,
-            amount=total_amount,
-            status="SUCCESS"
-        )
-
-        db.add(new_order)
+        # CẬP NHẬT TRẠNG THÁI THÀNH CÔNG
+        order.status = "SUCCESS"
         db.commit()
 
-        print(f"✅ Đã trừ tiền và tạo đơn {order_id}. Kho còn: {product.stock}")
+        print(f"✅ Đã xác nhận thanh toán và ký JWS cho đơn {order.id}")
 
         return {
-        "status": "success",
-        "order_id": order_id,   
-        "amount": total_amount,
-        "jws_receipt": jws_receipt,
-        "client_secret": client_secret
+            "status": "success",
+            "order_id": order.id,
+            "jws_receipt": jws_receipt
         }
-       
+
     except Exception as e:
         db.rollback()
-        
-        try:
-            # Gửi tín hiệu hủy sang Laravel
-            requests.post("http://laravel.test/api/payments/cancel", json={"order_id": order_id}, timeout=5)
-        except Exception as cancel_err:
-            print(f"Không thể báo Laravel hủy đơn: {cancel_err}")
-        
-        refund_product = db.query(Product).filter(Product.id == request.product_id).with_for_update().first()
-        
-        if refund_product:
-            refund_product.stock += request.quantity
-            db.commit()
-        raise HTTPException(status_code=500, detail=f"Lỗi thanh toán, đã hoàn lại kho: {str(e)}")
-
+        raise HTTPException(status_code=500, detail=f"Lỗi xác nhận: {str(e)}")
     finally:
         db.close()
 
-
 # ==========================================
-# PHẦN API QUẢN LÝ SẢN PHẨM
+# PHẦN API QUẢN LÝ SẢN PHẨM & ĐỐI SOÁT
 # ==========================================
 class ProductCreateRequest(BaseModel):
     id: str
@@ -189,16 +203,10 @@ class ProductCreateRequest(BaseModel):
     stock: int
     price: int
 
-
-
-# API để shop thêm sản phẩm vào kho
-
 @app.post("/api/products")
-
 async def add_product(request: ProductCreateRequest):
     db = SessionLocal()
     try:
-        # Check có hàng chưa
         existing = db.query(Product).filter(Product.id == request.id).first()
         if existing:
             existing.stock += request.stock
@@ -218,20 +226,15 @@ async def add_product(request: ProductCreateRequest):
 
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Lỗi thanh toán, đã hoàn lại kho: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Lỗi thêm sản phẩm: {str(e)}")
     finally:
         db.close()
-
-       
-
-# API cho Frontend gọi để lấy danh sách hàng show lên Web
 
 @app.get("/api/products")
 async def get_products():
     db = SessionLocal()
-    products =  db.query(Product).filter(Product.stock > 0).all() # Lấy hàng còn
+    products =  db.query(Product).filter(Product.stock > 0).all() 
     db.close()
-
 
     result =  []
     for p in products:
@@ -244,21 +247,15 @@ async def get_products():
         
     return {"status":"success","data": result}
 
-# ==========================================
-# PHẦN ĐỐI SOÁT GIAO DỊCH
-# ==========================================
-
-PAYMENT_CHECK_URL = "http://laravel.test/api/payments/status/"
-
 @app.get("/api/orders/reconcile")
 def reconcile_orders():
     db = SessionLocal()
     
     report = {
         "total_checked" : 0,
-        "matched" : [], # Khớp
-        "mismatched": [], # Ko đúng trạng thái
-        "missing_in_gw": [] # Có trên FastAPI nhưng backend chưa biết
+        "matched" : [], 
+        "mismatched": [], 
+        "missing_in_gw": [] 
     }
     
     try:
@@ -278,7 +275,6 @@ def reconcile_orders():
                 gw_status = gw_data.get("status")
                 gw_amount = gw_data.get("amount")
                 
-                # Bắt đầu đối soát
                 if order.status == gw_status and float(order.amount) == float(gw_amount):
                     report["matched"].append(order.id)
                 else:
@@ -300,9 +296,6 @@ def reconcile_orders():
     finally:
         db.close()
 
-
-# Treo máy để lắng nghe cổng 5000, chờ Frontend gọi API tạo đơn hàng
 if __name__ == "__main__":
     import uvicorn
-    # Chạy server tại cổng 5000
     uvicorn.run(app, host="0.0.0.0", port=5000)

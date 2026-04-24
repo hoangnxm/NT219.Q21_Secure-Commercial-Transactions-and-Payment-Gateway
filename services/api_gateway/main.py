@@ -20,15 +20,10 @@ client = httpx.AsyncClient()
 
 # Khớp nối nội bộ trong Kubernetes
 SERVICES = {
-    "order": "http://order-service:8080",
     "payment": "http://payment-orchestrator-service:8080",
     "fraud": "http://fraud-engine-service:8001"
 }
 
-# 1. Route riêng cho Frontend lấy products (Giữ nguyên path để Frontend ít phải sửa nhất)
-@app.api_route("/api/products", methods=["GET"])
-async def route_products(request: Request):
-    return await forward_request("order", "/api/products", request)
 
 # 2. Route mở rộng để mày tự do thêm các khớp nối khác
 # Frontend có thể gọi /order/api/xyz, Stripe gọi webhook qua /payment/webhook

@@ -15,9 +15,20 @@ spec:
       containers:
       - name: softhsm
         image: softhsm-service:latest
-        imagePullPolicy: Never # Vì mình build local
+        imagePullPolicy: Never
         ports:
-        - containerPort: 8888 # Port giả định để gọi API ký số
+        - containerPort: 8888
+        # GIÁP KHIÊN CHO SOFTHSM
+        volumeMounts:
+        - name: softhsm-cert-volume
+          mountPath: /etc/certs
+          readOnly: true
+
+      # KHAI BÁO KHO CHỨA SECRET
+      volumes:
+      - name: softhsm-cert-volume
+        secret:
+          secretName: softhsm-certs
 ---
 apiVersion: v1
 kind: Service

@@ -13,35 +13,34 @@ spec:
       labels:
         app: payment-orchestrator
     spec:
-      # Bước xử lý tiền kỳ: Chạy Migrate tự động
       initContainers:
       - name: run-migrations
         image: payment_orchestrator:v1
         command: ["php", "artisan", "migrate", "--force"]
-        # HÚT TOÀN BỘ BIẾN TỪ FILE .ENV VÀO ĐÂY
         envFrom:
         - secretRef:
             name: payment-env-secret
-        # Ghi đè (Override) những khớp nối riêng của K3d
         env:
         - name: DB_CONNECTION
           value: pgsql
         - name: DB_HOST
-          value: postgres # Khớp với Service Name của DB trên K8s
+          value: postgres
         - name: DB_PORT
           value: "5432"
 
-      # Container chạy thực tế
       containers:
       - name: payment-orchestrator
         image: payment_orchestrator:v1
         ports:
         - containerPort: 80
-        # HÚT TOÀN BỘ BIẾN TỪ FILE .ENV VÀO ĐÂY
+        # GIÁP KHIÊN CHO PAYMENT ORCHESTRATOR
+        volumeMounts:
+        - name: cert-volume
+          mountPath: /var/www/html/storage/certs
+          readOnly: true
         envFrom:
         - secretRef:
             name: payment-env-secret
-        # Ghi đè (Override) những khớp nối riêng của K3d
         env:
         - name: DB_CONNECTION
           value: pgsql
@@ -54,7 +53,13 @@ spec:
         - name: DB_PASSWORD
           value: root
         - name: REDIS_HOST
-          value: redis-service # Trỏ tới Redis trên K8s
+          value: redis-service
+
+      # KHAI BÁO KHO CHỨA SECRET
+      volumes:
+      - name: cert-volume
+        secret:
+          secretName: client-certs
 ---
 apiVersion: v1
 kind: Service
