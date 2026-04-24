@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-engine
+  namespace: nt219-project
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fraud-engine
+  template:
+    metadata:
+      labels:
+        app: fraud-engine
+    spec:
+      containers:
+      - name: fraud-engine
+        image: payment_fraud_engine:v1
+        ports:
+        - containerPort: 8001
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fraud-engine-service
+  namespace: nt219-project
+spec:
+  type: ClusterIP
+  selector:
+    app: fraud-engine
+  ports:
+  - port: 8001
+    targetPort: 8001

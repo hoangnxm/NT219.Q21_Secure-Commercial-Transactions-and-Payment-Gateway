@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-orchestrator
+  namespace: nt219-project
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-orchestrator
+  template:
+    metadata:
+      labels:
+        app: payment-orchestrator
+    spec:
+      # Bước xử lý tiền kỳ: Chạy Migrate tự động
+      initContainers:
+      - name: run-migrations
+        image: payment_orchestrator:v1
+        command: ["php", "artisan", "migrate", "--force"]
+        # HÚT TOÀN BỘ BIẾN TỪ FILE .ENV VÀO ĐÂY
+        envFrom:
+        - secretRef:
+            name: payment-env-secret
+        # Ghi đè (Override) những khớp nối riêng của K3d
+        env:
+        - name: DB_CONNECTION
+          value: pgsql
+        - name: DB_HOST
+          value: postgres # Khớp với Service Name của DB trên K8s
+        - name: DB_PORT
+          value: "5432"
+
+      # Container chạy thực tế
+      containers:
+      - name: payment-orchestrator
+        image: payment_orchestrator:v1
+        ports:
+        - containerPort: 80
+        # HÚT TOÀN BỘ BIẾN TỪ FILE .ENV VÀO ĐÂY
+        envFrom:
+        - secretRef:
+            name: payment-env-secret
+        # Ghi đè (Override) những khớp nối riêng của K3d
+        env:
+        - name: DB_CONNECTION
+          value: pgsql
+        - name: DB_HOST
+          value: postgres
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_DATABASE
+          value: laravel
+        - name: DB_PASSWORD
+          value: root
+        - name: REDIS_HOST
+          value: redis-service # Trỏ tới Redis trên K8s
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-orchestrator-service
+  namespace: nt219-project
+spec:
+  selector:
+    app: payment-orchestrator
+  ports:
+  - port: 80
+    targetPort: 80

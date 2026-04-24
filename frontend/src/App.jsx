@@ -33,7 +33,7 @@ function App() {
     setErrorMsg('');
 
     try {
-      const response = await fetch('http://localhost:5000/api/orders/create',{
+      const response = await fetch('http://localhost:8080/order/api/orders/create',{
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({

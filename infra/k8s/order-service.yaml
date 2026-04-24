@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order
+  namespace: nt219-project
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order
+  template:
+    metadata:
+      labels:
+        app: order
+    spec:
+      containers:
+      - name: order
+        image: payment_order:v1
+        ports:
+        - containerPort: 5000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-service
+  namespace: nt219-project
+spec:
+  type: ClusterIP
+  selector:
+    app: order
+  ports:
+  - port: 5000
+    targetPort: 5000
