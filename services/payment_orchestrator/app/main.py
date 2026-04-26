@@ -6,6 +6,7 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException, Request, Header, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -17,6 +18,14 @@ from app.models import Base, Order, AuditLog
 from app.schemas import ChargeRequest, CancelRequest
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Cho phép tất cả các cổng (8080, 5000...) gọi vào
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Cấu hình DB & Stripe
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@postgres-db/payment_db")
@@ -33,37 +42,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-# Helper: Ghi log bảo mật ký bằng SoftHSM
-async def log_security_event(event: str, data: dict, db: Session):
-    payload_str = json.dumps(data)
-    timestamp = str(int(time.time()))
-    nonce = secrets.token_hex(16)
-    
-    # Tính HMAC
-    data_to_hash = timestamp + payload_str
-    signature = hmac.new(HMAC_SECRET.encode(), data_to_hash.encode(), hashlib.sha256).hexdigest()
-
-    try:
-        # Cấu hình mTLS tương tự Laravel
-        #
-        cert_path = ('/path/to/certs/client.crt', '/path/to/certs/client.key') 
-        async with httpx.AsyncClient(cert=cert_path, verify=False) as client:
-            res = await client.post(
-                'https://softhsm.nt219-project.svc.cluster.local:8888/api/sign',
-                headers={
-                    'X-Signature': signature,
-                    'X-Timestamp': timestamp,
-                    'X-Nonce': nonce
-                },
-                json={'payload': payload_str}
-            )
-            if res.status_code == 200:
-                audit_log = AuditLog(event=event, payload=payload_str, signature=res.json().get('signature'))
-                db.add(audit_log)
-                db.commit()
-    except Exception as e:
-        print(f"Lỗi ghi Audit Log: {e}")
 
 # 1. API Charge
 @app.post("/api/payments/charge")
@@ -91,96 +69,42 @@ async def charge(req_data: ChargeRequest, request: Request, db: Session = Depend
         "hour_of_day": datetime.utcnow().hour
     }
 
-    try:
-        # Gọi Fraud Engine
+    try: 
         async with httpx.AsyncClient() as client:
-            fraud_res = await client.post(
-                'http://fraud-engine-service.nt219-project.svc.cluster.local:8001/api/fraud/score',
-                json=fraud_payload,
-                timeout=5.0
-            )
-            if fraud_res.status_code != 200:
-                raise HTTPException(status_code=500, detail={"error": "AI bị lỗi", "detail": fraud_res.text})
-            
+            fraud_res = await client.post('http://fraud-engine-service.nt219-project.svc.cluster.local:8001/api/fraud/score', json=fraud_payload, timeout=5.0)
             fraud_data = fraud_res.json()
             
-            order_status = 'FRAUD_BLOCKED' if fraud_data['action'] == 'block' else 'PENDING'
-            
-            new_order = Order(
-                order_id=req_data.order_id,
-                email=email,
-                amount=req_data.amount,
-                fraud_score=fraud_data['score'],
-                fraud_action=fraud_data['action'],
-                status=order_status
-            )
-            db.add(new_order)
-            db.commit()
-            
-            if fraud_data['action'] == 'block':
-                await log_security_event('FRAUD_BLOCK_ACTION', {
-                    'order_id': req_data.order_id,
-                    'email': email,
-                    'fraud_score': fraud_data['score'],
-                    'reason': fraud_data.get('reason'),
-                    'ip': request.client.host
-                }, db)
-                return {"error": "Giao dịch bị từ chối do rủi ro gian lận cao", "fraud_score": fraud_data['score']}
-
-            force_3ds = (fraud_data['action'] == 'force_3ds')
-
-            # Chuyển tiếp Stripe
-            payment_intent = stripe.PaymentIntent.create(
-                amount=int(req_data.amount), # Lưu ý: Stripe dùng số nguyên (VND không có cent)
-                currency='vnd',
-                receipt_email=email,
-                metadata={'order_id': req_data.order_id, 'fraud_score': fraud_data['score']},
-                payment_method_options={
-                    'card': {'request_three_d_secure': 'any' if force_3ds else 'automatic'}
-                }
-            )
-
-            # Ký số mTLS qua SoftHSM
-            jws_signature = 'HSM_OFFLINE_TEMP'
-            try:
-                order_info = f"Order:{req_data.order_id}|Amount:{req_data.amount}|StripeID:{payment_intent.id}"
-                data_to_send = {'payload': order_info}
-                final_json = json.dumps(data_to_send, separators=(',', ':'))
-                
-                timestamp = str(int(time.time()))
-                nonce = secrets.token_hex(16)
-                data_to_hash = f"{timestamp}.{nonce}.{final_json}"
-                signature = hmac.new(HMAC_SECRET.encode(), data_to_hash.encode(), hashlib.sha256).hexdigest()
-
-                cert_path = ('/path/to/certs/client.crt', '/path/to/certs/client.key')
-                async with httpx.AsyncClient(cert=cert_path, verify=False) as hsm_client:
-                    sign_res = await hsm_client.post(
-                        'https://softhsm.nt219-project.svc.cluster.local:8888/api/sign',
-                        headers={'X-Signature': signature, 'X-Timestamp': timestamp, 'X-Nonce': nonce},
-                        content=final_json
-                    )
-                    if sign_res.status_code == 200:
-                        jws_signature = sign_res.json().get('signature', 'SIGNING FAILED')
-                    else:
-                        jws_signature = 'SIGNING FAILED'
-            except Exception as e:
-                print(f"HSM Error: {e}")
-            
-            new_order.stripe_payment_id = payment_intent.id
-            new_order.jws_signature = jws_signature
-            db.commit()
-
-            return {
-                "status": "success",
-                "order_id": new_order.order_id,
-                "amount": new_order.amount,
-                "client_secret": payment_intent.client_secret,
-                "fraud_score": fraud_data['score'],
-                "action": fraud_data['action'],
-                "jws_receipt": jws_signature
-            }
+        if fraud_data['action'] == "block":
+            return {"error": "Giao dịch bị từ chối", "fraud_score": fraud_data['score']}
+        
+        new_order = Order(
+            order_id = req_data.order_id,
+            email = email,
+            amount = req_data.amount,
+            fraud_score = fraud_data['score'],
+            fraud_action = fraud_data['action'],
+            status = 'PENDING',
+            jws_signature = 'PENDING_PAYMENT'
+        )
+        db.add(new_order)
+        db.commit()
+        
+        # Chuyển tiếp Stripe
+        payment_intent = stripe.PaymentIntent.create(
+            amount = int(req_data.amount),
+            currency = 'vnd',
+            receipt_email = email,
+            metadata = {'order_id':req_data.order_id}
+        )
+        new_order.stripe_payment_id = payment_intent.id
+        db.commit()
+        
+        return {
+            "status": "success", "order_id": new_order.order_id, "amount": new_order.amount,
+            "client_secret": payment_intent.client_secret, "fraud_score": fraud_data['score']
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail={"error": "Lỗi kết nối Fraud Engine", "msg": str(e)})
+        raise HTTPException(status_code=500, detail={"error": "Lỗi kết nối", "msg": str(e)})
 
 # 2. Webhook Stripe
 @app.post("/api/webhook/stripe")
@@ -191,28 +115,46 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret) # Xác minh chữ ký
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid payload")
-    except stripe.error.SignatureVerificationError:
-        raise HTTPException(status_code=400, detail="Invalid signature")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid webhook")
 
     payment_intent = event['data']['object']
     order = db.query(Order).filter(Order.stripe_payment_id == payment_intent['id']).first()
 
-    if event['type'] == 'payment_intent.succeeded' and order:
+    # Nếu thông báo tiền về thì mới ký số
+    if event['type'] == 'payment_intent.succeeded' and order and order.status != 'SUCCESS':
         order.status = 'SUCCESS'
-        await log_security_event('PAYMENT_SUCCESS_FINAL', {
-            'order_id': order.order_id,
-            'stripe_id': payment_intent['id']
-        }, db)
+
+        try:
+            order_info = f"Order:{order.order_id}|Amount:{order.amount}|StripeID:{payment_intent['id']}"
+            data_to_send = {'payload': order_info}
+            final_json = json.dumps(data_to_send, separators=(',', ':'))
+            
+            timestamp = str(int(time.time()))
+            nonce = secrets.token_hex(16)
+            data_to_hash = f"{timestamp}.{nonce}.{final_json}"
+            signature = hmac.new(HMAC_SECRET.encode(), data_to_hash.encode(), hashlib.sha256).hexdigest()
+
+            # Chứng chỉ mTLS của Python
+            cert_path = ('/payment_orchestrator/certs/client.crt', '/payment_orchestrator/certs/client.key')
+            async with httpx.AsyncClient(cert=cert_path, verify=False) as hsm_client:
+                sign_res = await hsm_client.post(
+                    'https://softhsm.nt219-project.svc.cluster.local:8888/api/sign',
+                    headers={'X-Signature': signature, 'X-Timestamp': timestamp, 'X-Nonce': nonce,'Content-Type': 'application/json'},
+                    content=final_json
+                )
+                if sign_res.status_code == 200:
+                    order.jws_signature = sign_res.json().get('signature', 'SIGNING FAILED')
+                else:
+                    order.jws_signature = 'SIGNING FAILED'
+        except Exception as e:
+            print(f"Lỗi gọi HSM từ Webhook: {e}")
+            order.jws_signature = 'HSM_OFFLINE_ERROR'
+        db.commit()
+
     elif event['type'] == 'payment_intent.payment_failed' and order:
         order.status = 'FAILED'
-        await log_security_event('PAYMENT_FAILED_ALERT', {
-            'order_id': order.order_id,
-            'stripe_id': payment_intent['id']
-        }, db)
-    
-    db.commit()
+        db.commit()
     return {"status": "success"}
 
 # 3. Get Status
@@ -221,7 +163,12 @@ def get_status(order_id: str, db: Session = Depends(get_db)):
     order = db.query(Order).filter(Order.order_id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
-    return {"order_id": order.order_id, "amount": order.amount, "status": order.status}
+    return {
+        "order_id": order.order_id, 
+        "amount": order.amount, 
+        "status": order.status,
+        "jws_signature": order.jws_signature
+    }
 
 # 4. Cancel Order
 @app.post("/api/payments/cancel")

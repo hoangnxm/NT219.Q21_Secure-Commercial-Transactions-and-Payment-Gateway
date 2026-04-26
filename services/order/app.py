@@ -23,7 +23,6 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 PAYMENT_ORCHESTRATOR_URL = "http://api-gateway-service.nt219-project.svc.cluster.local/payment/api/payments/charge"
-SOFTHSM_SIGNER_URL = "https://softhsm.nt219-project.svc.cluster.local:8888/api/sign"
 PAYMENT_CHECK_URL = "http://api-gateway-service.nt219-project.svc.cluster.local/payment/api/payments/status/"
 
 HMAC_SECRET = b"chuoi_bi_mat_cua_nhom_NT219"
@@ -138,54 +137,16 @@ async def confirm_order(request: ConfirmRequest):
         
         if order.status == "SUCCESS":
             return {"status": "success", "message": "Đơn hàng đã được xác nhận từ trước"}
-
-        # GỌI SOFTHSM KÝ BIÊN LAI (MẶC GIÁP mTLS)
-        ca_path = "/etc/certs/ca.crt"
-        cert_path = "/etc/certs/client.crt"
-        key_path = "/etc/certs/client.key"
- 
-        payload_str = f'{{"payload": "HoaDon_{order.id}_{order.amount}VND"}}'          
-        timestamp = str(int(time.time()))
-        nonce = uuid.uuid4().hex
-        data_to_hash = f"{timestamp}.{nonce}.{payload_str}".encode('utf-8')
-        signature = hmac.new(HMAC_SECRET, data_to_hash, hashlib.sha256).hexdigest()
-
-        headers = {
-            "X-Signature": signature,
-            "X-Timestamp": timestamp,
-            "X-Nonce": nonce,
-            "Content-Type": "application/json"
-        }
-
-        try:
-            res_sign = requests.post(
-                SOFTHSM_SIGNER_URL, 
-                data=payload_str, 
-                headers=headers, 
-                timeout=30,
-                verify=False,            
-                cert=(cert_path, key_path) 
-            )
-            
-            if res_sign.status_code != 200:
-                raise Exception(f"SoftHSM lỗi {res_sign.status_code}: {res_sign.text}")
-
-        except Exception as sign_err:
-            print(f"Lỗi mTLS thật sự: {sign_err}")
-            raise sign_err
-
-        jws_receipt = res_sign.json().get("signature", "SIGNING_FAILED")
         
         # CẬP NHẬT TRẠNG THÁI THÀNH CÔNG
         order.status = "SUCCESS"
         db.commit()
 
-        print(f"✅ Đã xác nhận thanh toán và ký JWS cho đơn {order.id}")
+        print(f"✅ Đã đồng bộ trạng thái thanh toán cho đơn {order.id}")
 
         return {
             "status": "success",
             "order_id": order.id,
-            "jws_receipt": jws_receipt
         }
 
     except Exception as e:

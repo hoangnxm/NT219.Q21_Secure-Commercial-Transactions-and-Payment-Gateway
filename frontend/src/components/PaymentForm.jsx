@@ -36,34 +36,43 @@ export default function PaymentForm({ product, orderData, userEmail }) {
         setMessage("❌ Lỗi: " + error.message);
       }
     } 
-    // NHỊP 2: Check Stripe báo thành công
+    // Chờ Webhook báo thành công và in biên lai
     else if (paymentIntent && paymentIntent.status === 'succeeded') {
       setMessage("✅ Thanh toán thành công! Đang lấy biên lai an toàn...");
       
-      // NHỊP 3: Gọi Backend xác nhận và lấy Biên lai SoftHSM
-      try {
-        const confirmRes = await fetch('http://localhost:5000/api/orders/confirm', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ order_id: orderData.order_id })
-        });
-        
-        const confirmData = await confirmRes.json();
+      const checkStatus = setInterval(async () => {
+        try {
+          // Hỏi Payment Orchestrator để lấy JWS được ký
+          const poRes = await fetch(`http://localhost:8000/api/payments/status/${orderData.order_id}`);
+          const poData = await poRes.json();
 
-        if (confirmRes.ok && confirmData.status === 'success') {
-          setMessage("✅ Giao dịch hoàn tất! Đã ký biên lai an toàn.");
-          // Lưu biên lai vào State để xổ cái bảng xanh lè ra
-          setReceipt(confirmData.jws_receipt);
-        } else {
-          setMessage("⚠️ Thanh toán OK nhưng lỗi lấy biên lai: " + (confirmData.detail || "Lỗi không xác định"));
-        }
-      } catch (err) {
-        setMessage("⚠️ Thanh toán OK nhưng không thể kết nối tới Server để lấy biên lai.");
-      } finally {
-        setIsProcessing(false);
-      }
+          // Khi nào Payment Orchestrator báo SUCCESS và cập nhật JWS thì mới dừng vòng lặp
+          if (poData.status === 'SUCCESS' && poData.jws_signature && poData.jws_signature !== 'PENDING_PAYMENT') {
+            clearInterval(checkStatus);
+            
+            // Báo lại cho Order Service đổi trạng thái đơn hàng cục bộ
+            await fetch('http://localhost:5000/api/orders/confirm', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ order_id: orderData.order_id })
+            });
 
-    } else {
+            // Hiện JWS
+            setReceipt(poData.jws_signature);
+            setMessage("🎉 Giao dịch hoàn tất! Đã ký biên lai an toàn.");
+            setIsProcessing(false);
+          } 
+          else if (poData.status === 'FAILED') {
+            clearInterval(checkStatus);
+            setMessage("❌ Giao dịch thất bại tại cổng thanh toán!");
+            setIsProcessing(false);
+          }
+        } catch (err) {
+          console.error("Lỗi khi kiểm tra biên lai:", err);
+        }
+      }, 2000);
+    } 
+     else {
       setMessage("⏳ Trạng thái: " + (paymentIntent?.status || "Đang xử lý..."));
       setIsProcessing(false);
     }
