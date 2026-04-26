@@ -20,7 +20,7 @@ client = httpx.AsyncClient()
 
 # Khớp nối nội bộ trong Kubernetes
 SERVICES = {
-    "payment": "http://payment-orchestrator-service:8080",
+    "payment": "http://payment-orchestrator-service",
     "fraud": "http://fraud-engine-service:8001"
 }
 

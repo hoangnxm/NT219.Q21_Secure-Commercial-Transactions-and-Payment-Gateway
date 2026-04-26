@@ -13,49 +13,22 @@ spec:
       labels:
         app: payment-orchestrator
     spec:
-      initContainers:
-      - name: run-migrations
-        image: payment_orchestrator:v1
-        command: ["php", "artisan", "migrate", "--force"]
-        envFrom:
-        - secretRef:
-            name: payment-env-secret
-        env:
-        - name: DB_CONNECTION
-          value: pgsql
-        - name: DB_HOST
-          value: postgres
-        - name: DB_PORT
-          value: "5432"
-
       containers:
       - name: payment-orchestrator
-        image: payment_orchestrator:v1
+        image: payment_orchestrator:v2  # LƯU Ý: Đổi tag thành v2 để k8s biết là ảnh mới
         ports:
-        - containerPort: 80
-        # GIÁP KHIÊN CHO PAYMENT ORCHESTRATOR
+        - containerPort: 8000
+  
         volumeMounts:
         - name: cert-volume
-          mountPath: /var/www/html/storage/certs
+          mountPath: /payment_orchestrator/certs  
           readOnly: true
         envFrom:
         - secretRef:
             name: payment-env-secret
-        env:
-        - name: DB_CONNECTION
-          value: pgsql
-        - name: DB_HOST
-          value: postgres
-        - name: DB_PORT
-          value: "5432"
-        - name: DB_DATABASE
-          value: laravel
-        - name: DB_PASSWORD
-          value: root
-        - name: REDIS_HOST
-          value: redis-service
 
-      # KHAI BÁO KHO CHỨA SECRET
+
+
       volumes:
       - name: cert-volume
         secret:
@@ -71,4 +44,4 @@ spec:
     app: payment-orchestrator
   ports:
   - port: 80
-    targetPort: 80
+    targetPort: 8000 

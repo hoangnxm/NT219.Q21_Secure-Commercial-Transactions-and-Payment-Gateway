@@ -1,34 +1,27 @@
-# Đã nâng cấp lên PHP 8.3 theo đúng yêu cầu của composer.json
-FROM php:8.3-apache
+# Sử dụng base image Python 3.12 bản slim để tối ưu dung lượng
+FROM python:3.12-slim
 
-# Cài đặt thư viện lõi, Nodejs (nếu có build Vite) và Postgres PDO
-RUN apt-get update && apt-get install -y \
-    libpq-dev \
-    unzip \
-    git \
-    nodejs \
-    npm \
-    && docker-php-ext-install pdo pdo_pgsql
+# Ngăn Python tạo ra các file .pyc và ép output log ra console ngay lập tức
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
-# Bật module rewrite cho Apache
-RUN a2enmod rewrite
+# Thiết lập thư mục làm việc trong container
+WORKDIR /payment_orchestrator
 
-# Cài Composer
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+# Cài đặt thư viện hệ thống cần thiết (nếu có dùng psycopg2 để kết nối DB)
+RUN apt-get update && apt-get install -y libpq-dev gcc && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /var/www/html
+# Copy requirements.txt vào trước để tận dụng Docker cache
+COPY requirements.txt .
+
+# Cài đặt các thư viện Python
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy toàn bộ mã nguồn vào container
 COPY . .
 
-# Build vendor và tài nguyên frontend (nếu có)
-RUN composer install --no-dev --optimize-autoloader
-RUN npm install && npm run build || true
+# Expose port mặc định của uvicorn
+EXPOSE 8000
 
-# Phân quyền ghi cho Laravel
-RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
-
-# Cấu hình lại thư mục gốc của Apache
-ENV APACHE_DOCUMENT_ROOT /var/www/html/public
-RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf
-RUN sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
-
-EXPOSE 80
+# Lệnh khởi chạy server
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
