@@ -141,7 +141,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             # THAY ĐỔI 2: Đổi đường dẫn chứng chỉ cho đồng bộ với Master Secret
             async with httpx.AsyncClient(cert=CERT_PATH, verify=VERIFY_CA) as hsm_client:
                 sign_res = await hsm_client.post(
-                    'https://softhsm:8888/api/sign',
+                    'https://softhsm:8443/api/sign',
                     headers={'X-Signature': signature, 'X-Timestamp': timestamp, 'X-Nonce': nonce,'Content-Type': 'application/json'},
                     content=final_json
                 )

@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: payment-orchestrator
-        image: payment_orchestrator:v1
+        image: payment_orchestrator:local
         ports:
         - containerPort: 8000
         # ĐỔI THÀNH MOUNT PATH CHUẨN

@@ -15,7 +15,7 @@ app.add_middleware(
 )
 
 cert_path = ('/certs/client.crt', '/certs/client.key')
-//ca_cert_path = '../certs/ca.crt' 
+# ca_cert_path = '../certs/ca.crt' 
 
 # Ống dẫn xài chung
 client = httpx.AsyncClient(cert=cert_path, verify=False)
@@ -23,7 +23,7 @@ client = httpx.AsyncClient(cert=cert_path, verify=False)
 # SỬA LẠI THÀNH CỔNG 80 ĐỂ KHỚP VỚI K8S SERVICE CỦA ORCHESTRATOR
 SERVICES = {
     "payment": "https://payment-orchestrator-service:80",
-    "fraud": "https://fraud-engine-service:80"
+    "fraud": "https://fraud-engine-service:8001"
 }
 
 @app.api_route("/{service_name}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])

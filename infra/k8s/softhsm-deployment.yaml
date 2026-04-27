@@ -19,6 +19,7 @@ spec:
         imagePullPolicy: Never
         ports:
         - containerPort: 8888
+        - containerPort: 8443
         volumeMounts:
         - name: softhsm-cert-volume
           mountPath: /etc/certs
