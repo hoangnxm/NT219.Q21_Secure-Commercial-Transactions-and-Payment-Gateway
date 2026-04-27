@@ -16,17 +16,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-client = httpx.AsyncClient()
+# THAY ĐỔI 1: Bơm thẻ ngành mTLS vào HTTPX Client
+cert_path = ('/certs/client.crt', '/certs/client.key')
+client = httpx.AsyncClient(cert=cert_path, verify=False)
 
-# Khớp nối nội bộ trong Kubernetes
+# THAY ĐỔI 2: Đổi giao thức Khớp nối thành HTTPS
 SERVICES = {
-    "payment": "http://payment-orchestrator-service",
-    "fraud": "http://fraud-engine-service:8001"
+    "payment": "https://payment-orchestrator-service:80",
+    "fraud": "https://fraud-engine-service:8001"
 }
 
-
-# 2. Route mở rộng để mày tự do thêm các khớp nối khác
-# Frontend có thể gọi /order/api/xyz, Stripe gọi webhook qua /payment/webhook
+# Route mở rộng để tự do thêm các khớp nối khác
 @app.api_route("/{service_name}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def dynamic_router(service_name: str, path: str, request: Request):
     if service_name not in SERVICES:

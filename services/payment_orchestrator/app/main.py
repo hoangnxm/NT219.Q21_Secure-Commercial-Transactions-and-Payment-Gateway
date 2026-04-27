@@ -1,3 +1,4 @@
+# services/payment_orchestrator/app/main.py
 import os
 import json
 import time
@@ -21,13 +22,12 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Cho phép tất cả các cổng (8080, 5000...) gọi vào
+    allow_origins=["*"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Cấu hình DB & Stripe
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@postgres-db/payment_db")
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -35,6 +35,12 @@ Base.metadata.create_all(bind=engine)
 
 stripe.api_key = os.getenv("STRIPE_SECRET")
 HMAC_SECRET = os.getenv("HMAC_SECRET", "chuoi_bi_mat_cua_nhom_NT219")
+
+# ---------------------------------------------------------
+# CẤU HÌNH THẺ NGÀNH (mTLS) CHO CHIỀU GỌI ĐI
+# ---------------------------------------------------------
+CERT_PATH = ('/certs/client.crt', '/certs/client.key')
+VERIFY_CA = False 
 
 def get_db():
     db = SessionLocal()
@@ -48,11 +54,9 @@ def get_db():
 async def charge(req_data: ChargeRequest, request: Request, db: Session = Depends(get_db)):
     email = req_data.email.strip()
     
-    # Phân tích thiết bị
     user_agent = request.headers.get('User-Agent', '').lower()
     device = "Mobile" if "mobile" in user_agent else "Desktop"
     
-    # Đếm số lần thất bại 30p qua
     time_threshold = datetime.utcnow() - timedelta(minutes=30)
     failed_attempts = db.query(Order).filter(
         Order.email == email, 
@@ -70,8 +74,9 @@ async def charge(req_data: ChargeRequest, request: Request, db: Session = Depend
     }
 
     try: 
-        async with httpx.AsyncClient() as client:
-            fraud_res = await client.post('http://fraud-engine-service.nt219-project.svc.cluster.local:8001/api/fraud/score', json=fraud_payload, timeout=5.0)
+        # THAY ĐỔI 1: Rút thẻ ngành gọi sang Fraud Engine qua HTTPS
+        async with httpx.AsyncClient(cert=CERT_PATH, verify=VERIFY_CA) as client:
+            fraud_res = await client.post('https://fraud-engine-service:8001/api/fraud/score', json=fraud_payload, timeout=5.0)
             fraud_data = fraud_res.json()
             
         if fraud_data['action'] == "block":
@@ -89,7 +94,6 @@ async def charge(req_data: ChargeRequest, request: Request, db: Session = Depend
         db.add(new_order)
         db.commit()
         
-        # Chuyển tiếp Stripe
         payment_intent = stripe.PaymentIntent.create(
             amount = int(req_data.amount),
             currency = 'vnd',
@@ -114,14 +118,13 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     endpoint_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
 
     try:
-        event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret) # Xác minh chữ ký
+        event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret) 
     except Exception as e:
         raise HTTPException(status_code=400, detail="Invalid webhook")
 
     payment_intent = event['data']['object']
     order = db.query(Order).filter(Order.stripe_payment_id == payment_intent['id']).first()
 
-    # Nếu thông báo tiền về thì mới ký số
     if event['type'] == 'payment_intent.succeeded' and order and order.status != 'SUCCESS':
         order.status = 'SUCCESS'
 
@@ -135,11 +138,10 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             data_to_hash = f"{timestamp}.{nonce}.{final_json}"
             signature = hmac.new(HMAC_SECRET.encode(), data_to_hash.encode(), hashlib.sha256).hexdigest()
 
-            # Chứng chỉ mTLS của Python
-            cert_path = ('/payment_orchestrator/certs/client.crt', '/payment_orchestrator/certs/client.key')
-            async with httpx.AsyncClient(cert=cert_path, verify=False) as hsm_client:
+            # THAY ĐỔI 2: Đổi đường dẫn chứng chỉ cho đồng bộ với Master Secret
+            async with httpx.AsyncClient(cert=CERT_PATH, verify=VERIFY_CA) as hsm_client:
                 sign_res = await hsm_client.post(
-                    'https://softhsm.nt219-project.svc.cluster.local:8888/api/sign',
+                    'https://softhsm:8888/api/sign',
                     headers={'X-Signature': signature, 'X-Timestamp': timestamp, 'X-Nonce': nonce,'Content-Type': 'application/json'},
                     content=final_json
                 )
@@ -179,3 +181,16 @@ def cancel_order(req: CancelRequest, db: Session = Depends(get_db)):
         db.commit()
         return {"message": "Đã hủy đơn hàng thành công"}
     raise HTTPException(status_code=400, detail="Không tìm thấy đơn hợp lệ để hủy")
+
+# THAY ĐỔI 3: Giương khiên mTLS cho chiều nhận
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=8000,
+        ssl_keyfile="/certs/server.key",
+        ssl_certfile="/certs/server.crt",
+        ssl_ca_certs="/certs/ca.crt",
+        ssl_cert_reqs=2
+    )

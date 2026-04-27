@@ -18,6 +18,15 @@ spec:
         image: payment_fraud_engine:v1
         ports:
         - containerPort: 8001
+        # BƠM CHỨNG CHỈ VÀO FRAUD ENGINE
+        volumeMounts:
+        - name: cert-volume
+          mountPath: "/certs"
+          readOnly: true
+      volumes:
+      - name: cert-volume
+        secret:
+          secretName: master-mtls-certs
 ---
 apiVersion: v1
 kind: Service

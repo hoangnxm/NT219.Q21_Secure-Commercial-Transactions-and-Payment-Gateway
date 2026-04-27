@@ -1,3 +1,4 @@
+# infra/k8s/softhsm-deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,17 +19,16 @@ spec:
         imagePullPolicy: Never
         ports:
         - containerPort: 8888
-        # GIÁP KHIÊN CHO SOFTHSM
         volumeMounts:
         - name: softhsm-cert-volume
           mountPath: /etc/certs
           readOnly: true
 
-      # KHAI BÁO KHO CHỨA SECRET
       volumes:
       - name: softhsm-cert-volume
         secret:
-          secretName: softhsm-certs
+          # SỬA DÒNG NÀY: Từ softhsm-certs thành master-mtls-certs
+          secretName: master-mtls-certs 
 ---
 apiVersion: v1
 kind: Service

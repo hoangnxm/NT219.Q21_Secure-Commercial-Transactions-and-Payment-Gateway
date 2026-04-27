@@ -15,24 +15,21 @@ spec:
     spec:
       containers:
       - name: payment-orchestrator
-        image: payment_orchestrator:v2  # LƯU Ý: Đổi tag thành v2 để k8s biết là ảnh mới
+        image: payment_orchestrator:v1
         ports:
         - containerPort: 8000
-  
+        # ĐỔI THÀNH MOUNT PATH CHUẨN
         volumeMounts:
         - name: cert-volume
-          mountPath: /payment_orchestrator/certs  
+          mountPath: "/certs"
           readOnly: true
         envFrom:
         - secretRef:
             name: payment-env-secret
-
-
-
       volumes:
       - name: cert-volume
         secret:
-          secretName: client-certs
+          secretName: master-mtls-certs
 ---
 apiVersion: v1
 kind: Service
@@ -44,4 +41,4 @@ spec:
     app: payment-orchestrator
   ports:
   - port: 80
-    targetPort: 8000 
+    targetPort: 8000

@@ -29,4 +29,4 @@ COPY signer_api.py /app/signer_api.py
 
 # 5. Chạy API
 EXPOSE 8888
-CMD ["/bin/bash", "-c", "/usr/local/bin/init-hsm.sh && uvicorn signer_api:app --host 0.0.0.0 --port 8888 --ssl-keyfile /etc/certs/tls.key --ssl-certfile /etc/certs/tls.crt --ssl-ca-certs /etc/certs/ca.crt --ssl-cert-reqs 2"]
+CMD ["/bin/bash", "-c", "/usr/local/bin/init-hsm.sh && uvicorn signer_api:app --host 0.0.0.0 --port 8888 --ssl-keyfile /etc/certs/server.key --ssl-certfile /etc/certs/server.crt --ssl-ca-certs /etc/certs/ca.crt --ssl-cert-reqs 2"]

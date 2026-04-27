@@ -24,4 +24,4 @@ COPY . .
 EXPOSE 8000
 
 # Lệnh khởi chạy server
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--ssl-keyfile=/certs/server.key", "--ssl-certfile=/certs/server.crt", "--ssl-ca-certs=/certs/ca.crt", "--ssl-cert-reqs=2"]

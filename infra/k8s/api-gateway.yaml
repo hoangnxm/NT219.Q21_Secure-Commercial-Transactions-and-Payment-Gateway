@@ -15,9 +15,18 @@ spec:
     spec:
       containers:
       - name: api-gateway
-        image: payment_api_gateway:v1  # Image mày sẽ build
+        image: payment_api_gateway:v1
         ports:
         - containerPort: 80
+        # BƠM CHỨNG CHỈ VÀO GATEWAY
+        volumeMounts:
+        - name: cert-volume
+          mountPath: "/certs"
+          readOnly: true
+      volumes:
+      - name: cert-volume
+        secret:
+          secretName: master-mtls-certs
 ---
 apiVersion: v1
 kind: Service
@@ -25,7 +34,7 @@ metadata:
   name: api-gateway-service
   namespace: nt219-project
 spec:
-  type: LoadBalancer # Cực kỳ quan trọng để K3d map ra port 8000
+  type: LoadBalancer
   selector:
     app: api-gateway
   ports:

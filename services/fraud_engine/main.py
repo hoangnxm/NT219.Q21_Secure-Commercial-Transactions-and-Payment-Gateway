@@ -97,4 +97,12 @@ def fraud_score(tx: TransactionRequest):
 if __name__ == "__main__":
     
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=8001,
+        ssl_keyfile="/certs/server.key",
+        ssl_certfile="/certs/server.crt",
+        ssl_ca_certs="/certs/ca.crt",
+        ssl_cert_reqs=2
+    )
