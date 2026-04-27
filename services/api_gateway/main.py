@@ -15,10 +15,10 @@ app.add_middleware(
 )
 
 cert_path = ('/certs/client.crt', '/certs/client.key')
-# ca_cert_path = '../certs/ca.crt' 
+ca_cert_path = '/certs/ca.crt' 
 
 # Ống dẫn xài chung
-client = httpx.AsyncClient(cert=cert_path, verify=False)
+client = httpx.AsyncClient(cert=cert_path, verify=ca_cert_path)
 
 # SỬA LẠI THÀNH CỔNG 80 ĐỂ KHỚP VỚI K8S SERVICE CỦA ORCHESTRATOR
 SERVICES = {
@@ -60,7 +60,7 @@ if __name__ == "__main__":
     uvicorn.run(
         app, 
         host="0.0.0.0", 
-        port=443, # Đổi sang cổng HTTPS
+        port=8443, # Đổi sang cổng HTTPS
         ssl_keyfile="/certs/server.key",
         ssl_certfile="/certs/server.crt"
         # Cố tình không dùng ssl_ca_certs và ssl_cert_reqs để client không bị đòi thẻ

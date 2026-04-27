@@ -40,7 +40,7 @@ HMAC_SECRET = os.getenv("HMAC_SECRET", "chuoi_bi_mat_cua_nhom_NT219")
 # CẤU HÌNH THẺ NGÀNH (mTLS) CHO CHIỀU GỌI ĐI
 # ---------------------------------------------------------
 CERT_PATH = ('/certs/client.crt', '/certs/client.key')
-VERIFY_CA = False 
+VERIFY_CA = '/certs/ca.crt' 
 
 def get_db():
     db = SessionLocal()

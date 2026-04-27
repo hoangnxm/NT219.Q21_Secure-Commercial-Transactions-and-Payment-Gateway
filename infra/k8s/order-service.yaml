@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: order
-        image: payment_order:v1
+        image: payment_order:local
         ports:
         - containerPort: 5000
         # BƠM CHỨNG CHỈ VÀO ORDER SERVICE
