@@ -43,7 +43,7 @@ export default function PaymentForm({ product, orderData, userEmail }) {
       const checkStatus = setInterval(async () => {
         try {
           // Hỏi Payment Orchestrator để lấy JWS được ký
-          const poRes = await fetch(`http://localhost:8082/payment/api/payments/status/${orderData.order_id}`);
+          const poRes = await fetch(`http://localhost:8081/payment/api/payments/status/${orderData.order_id}`);
           const poData = await poRes.json();
 
           // Khi nào Payment Orchestrator báo SUCCESS và cập nhật JWS thì mới dừng vòng lặp

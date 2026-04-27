@@ -1,4 +1,3 @@
-# api_gateway/main.py
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
@@ -7,7 +6,6 @@ from fastapi.responses import Response
 
 app = FastAPI(title="Payment API Gateway")
 
-# Quan trọng: Thêm CORS để Frontend (Vite) gọi không bị chặn
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -16,28 +14,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# THAY ĐỔI 1: Bơm thẻ ngành mTLS vào HTTPX Client
 cert_path = ('/certs/client.crt', '/certs/client.key')
+//ca_cert_path = '../certs/ca.crt' 
+
+# Ống dẫn xài chung
 client = httpx.AsyncClient(cert=cert_path, verify=False)
 
-# THAY ĐỔI 2: Đổi giao thức Khớp nối thành HTTPS
+# SỬA LẠI THÀNH CỔNG 80 ĐỂ KHỚP VỚI K8S SERVICE CỦA ORCHESTRATOR
 SERVICES = {
     "payment": "https://payment-orchestrator-service:80",
-    "fraud": "https://fraud-engine-service:8001"
+    "fraud": "https://fraud-engine-service:80"
 }
 
-# Route mở rộng để tự do thêm các khớp nối khác
 @app.api_route("/{service_name}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def dynamic_router(service_name: str, path: str, request: Request):
     if service_name not in SERVICES:
         raise HTTPException(status_code=404, detail="Service không tồn tại")
-    return await forward_request(service_name, f"/{path}", request)
-
-async def forward_request(service_name: str, path: str, request: Request):
-    target_url = f"{SERVICES[service_name]}{path}"
-    body = await request.body()
+    
+    clean_path = f"/{path}" if not path.startswith("/") else path
+    target_url = f"{SERVICES[service_name]}{clean_path}"
+    
+    body = await request.body() # Lấy byte thô để giữ nguyên chữ ký Stripe
     headers = dict(request.headers)
-    headers.pop("host", None) # Gỡ host cũ để tránh kẹt tín hiệu
+    headers.pop("host", None) 
 
     try:
         response = await client.request(
@@ -53,7 +52,8 @@ async def forward_request(service_name: str, path: str, request: Request):
             headers=dict(response.headers)
         )
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Lỗi khớp nối tới {service_name}: {str(e)}")
+        print(f"🔥 LỖI mTLS: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"Lỗi khớp nối: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=80)
