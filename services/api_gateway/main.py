@@ -56,4 +56,12 @@ async def dynamic_router(service_name: str, path: str, request: Request):
         raise HTTPException(status_code=503, detail=f"Lỗi khớp nối: {str(e)}")
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=80)
+    import uvicorn
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=443, # Đổi sang cổng HTTPS
+        ssl_keyfile="/certs/server.key",
+        ssl_certfile="/certs/server.crt"
+        # Cố tình không dùng ssl_ca_certs và ssl_cert_reqs để client không bị đòi thẻ
+    )

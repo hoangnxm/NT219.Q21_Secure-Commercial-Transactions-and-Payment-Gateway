@@ -22,8 +22,8 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-PAYMENT_ORCHESTRATOR_URL = "http://api-gateway-service.nt219-project.svc.cluster.local/payment/api/payments/charge"
-PAYMENT_CHECK_URL = "http://api-gateway-service.nt219-project.svc.cluster.local/payment/api/payments/status/"
+PAYMENT_ORCHESTRATOR_URL = "https://api-gateway-service.nt219-project.svc.cluster.local:443/payment/api/payments/charge"
+PAYMENT_CHECK_URL = "https://api-gateway-service.nt219-project.svc.cluster.local:443/payment/api/payments/status/"
 
 HMAC_SECRET = b"chuoi_bi_mat_cua_nhom_NT219"
 
@@ -78,7 +78,7 @@ async def create_order(request: CheckoutRequest):
         order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"    
         total_amount = product.price * request.quantity
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
             pay_payload = {
                 "order_id": order_id,
                 "amount": total_amount,
@@ -226,7 +226,7 @@ def reconcile_orders():
             report["total_checked"] += 1
             
             try:
-                res = requests.get(f"{PAYMENT_CHECK_URL}{order.id}", timeout=5)
+                res = requests.get(f"{PAYMENT_CHECK_URL}{order.id}",verify = False, timeout=5)
                 
                 if res.status_code == 404:
                     report["missing_in_gw"].append(order.id)

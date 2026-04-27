@@ -18,7 +18,7 @@ spec:
         image: payment_api_gateway:local
         imagePullPolicy: IfNotPresent
         ports:
-        - containerPort: 80
+        - containerPort: 443
         volumeMounts:
         - name: cert-volume
           mountPath: "/certs"
@@ -38,8 +38,8 @@ spec:
   selector:
     app: api-gateway
   ports:
-  - port: 80
-    targetPort: 80
+  - port: 443
+    targetPort: 443
 ---
 # BỘ GIÁP INGRESS PHÂN LUỒNG TỪ 8081 VÀO GATEWAY
 apiVersion: networking.k8s.io/v1
@@ -59,4 +59,4 @@ spec:
           service:
             name: api-gateway-service
             port:
-              number: 80
+              number: 443
