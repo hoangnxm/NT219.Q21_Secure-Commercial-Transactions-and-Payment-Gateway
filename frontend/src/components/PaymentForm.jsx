@@ -51,7 +51,7 @@ export default function PaymentForm({ product, orderData, userEmail }) {
             clearInterval(checkStatus);
             
             // Báo lại cho Order Service đổi trạng thái đơn hàng cục bộ
-            await fetch('http://localhost:5000/api/orders/confirm', {
+            await fetch('/api/orders/confirm', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ order_id: orderData.order_id })

@@ -22,8 +22,8 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-PAYMENT_ORCHESTRATOR_URL = "https://api-gateway-service.nt219-project.svc.cluster.local:8443/payment/api/payments/charge"
-PAYMENT_CHECK_URL = "https://api-gateway-service.nt219-project.svc.cluster.local:8443/payment/api/payments/status/"
+PAYMENT_ORCHESTRATOR_URL = "https://api-gateway-service.nt219-project.svc.cluster.local:443/payment/api/payments/charge"
+PAYMENT_CHECK_URL = "https://api-gateway-service.nt219-project.svc.cluster.local:443/payment/api/payments/status/"
 
 HMAC_SECRET = b"chuoi_bi_mat_cua_nhom_NT219"
 

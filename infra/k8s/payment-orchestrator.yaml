@@ -29,7 +29,7 @@ spec:
       volumes:
       - name: cert-volume
         secret:
-          secretName: master-mtls-certs
+          secretName: orchestrator-certs
 ---
 apiVersion: v1
 kind: Service
