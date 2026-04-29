@@ -19,8 +19,7 @@ fi
 # 3. Kiểm tra KHÓA BỌC (AES 256)
 if ! pkcs11-tool --module /usr/lib/softhsm/libsofthsm2.so -l --pin 1234 -O | grep -q "my_wrapping_key"; then
     echo "Tạo khóa AES KHÓA BỌC..."
-    pkcs11-tool --module /usr/lib/softhsm/libsofthsm2.so -l --pin 1234 --keygen --key-type aes:256 --id 02 --label "my_wrapping_key" --sensitive --extractable
-else
+    pkcs11-tool --module /usr/lib/softhsm/libsofthsm2.so -l --pin 1234 --keygen --key-type aes:32 --id 02 --label "my_wrapping_key" --sensitive --extractableelse
     echo "Khóa 'my_wrapping_key' đã tồn tại. Bỏ qua."
 fi
 

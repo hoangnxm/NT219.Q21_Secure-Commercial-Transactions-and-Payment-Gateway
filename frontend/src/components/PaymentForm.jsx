@@ -40,37 +40,21 @@ export default function PaymentForm({ product, orderData, userEmail }) {
     else if (paymentIntent && paymentIntent.status === 'succeeded') {
       setMessage("✅ Thanh toán thành công! Đang lấy biên lai an toàn...");
       
-      const checkStatus = setInterval(async () => {
+      const checkInterval = setInterval(async () => {
         try {
-          // Hỏi Payment Orchestrator để lấy JWS được ký
-          const poRes = await fetch(`http://localhost:8081/payment/api/payments/status/${orderData.order_id}`);
-          const poData = await poRes.json();
-
-          // Khi nào Payment Orchestrator báo SUCCESS và cập nhật JWS thì mới dừng vòng lặp
-          if (poData.status === 'SUCCESS' && poData.jws_signature && poData.jws_signature !== 'PENDING_PAYMENT') {
-            clearInterval(checkStatus);
-            
-            // Báo lại cho Order Service đổi trạng thái đơn hàng cục bộ
-            await fetch('http://localhost:5000/api/orders/confirm', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ order_id: orderData.order_id })
-            });
-
-            // Hiện JWS
-            setReceipt(poData.jws_signature);
-            setMessage("🎉 Giao dịch hoàn tất! Đã ký biên lai an toàn.");
-            setIsProcessing(false);
-          } 
-          else if (poData.status === 'FAILED') {
-            clearInterval(checkStatus);
-            setMessage("❌ Giao dịch thất bại tại cổng thanh toán!");
-            setIsProcessing(false);
-          }
-        } catch (err) {
-          console.error("Lỗi khi kiểm tra biên lai:", err);
-        }
-      }, 2000);
+          const res = await fetch(`http://localhost:5000/api/orders/${orderData.order_id}/verify`);
+          const data = await res.json();
+          
+          if (data.status === "SUCCESS" || data.status === "succeeded") {
+            clearInterval(checkInterval); // Lấy được rồi thì ngừng hỏi
+            setReceipt(data.jws_signature);
+            setMessage('✅ Giao dịch hoàn tất. Đã lưu biên lai số!');
+            setIsProcessing(false);
+          }
+        } catch (err) {
+          console.log("Đang chờ JWS từ hệ thống...");
+        }
+      }, 2000);
     } 
      else {
       setMessage("⏳ Trạng thái: " + (paymentIntent?.status || "Đang xử lý..."));
@@ -117,19 +101,17 @@ export default function PaymentForm({ product, orderData, userEmail }) {
           {isProcessing ? 'PROCESSING...' : 'PAY NOW'}
         </button>
 
-        {message && (
-          <div style={message.includes('❌') || message.includes('⚠️') ? styles.errorMsg : styles.successMsg}>
-            {message}
-          </div>
-        )}
+        {message && <div style={{ marginBottom: '15px', color: message.includes('❌') ? '#ff4757' : '#2ed573', textAlign: 'center', fontWeight: 'bold' }}>{message}</div>}
         
         {/* Render JWS từ State 'receipt' thay vì 'orderData.jws_receipt' */}
         {receipt && (
-          <div style={styles.jwsBox}>
-            <h4 style={{ color: '#00f2fe', margin: '0 0 10px 0' }}>📄 BIÊN LAI XÁC THỰC (JWS)</h4>
-            <code style={styles.code}>{receipt}</code>
+        <div style={{ marginBottom: '20px', padding: '15px', background: 'rgba(0,0,0,0.4)', borderRadius: '12px', border: '1px solid #00f2fe', wordBreak: 'break-all' }}>
+          <div style={{ color: '#00f2fe', fontSize: '12px', marginBottom: '8px', fontWeight: 'bold' }}>📜 BIÊN LAI KÝ ĐIỆN TỬ (SoftHSM JWS):</div>
+          <div style={{ color: '#2ed573', fontFamily: 'monospace', fontSize: '11px', lineHeight: '1.4' }}>
+            {receipt}
           </div>
-        )}
+        </div>
+      )}
       </form>
     </div>
   );

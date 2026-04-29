@@ -29,7 +29,7 @@ spec:
       - name: softhsm-cert-volume
         secret:
           # SỬA DÒNG NÀY: Từ softhsm-certs thành master-mtls-certs
-          secretName: master-mtls-certs 
+          secretName: softhsm-certs 
 ---
 apiVersion: v1
 kind: Service
@@ -41,5 +41,5 @@ spec:
     app: softhsm
   ports:
     - protocol: TCP
-      port: 8888
-      targetPort: 8888
+      port: 8443
+      targetPort: 8443

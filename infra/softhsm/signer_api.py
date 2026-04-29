@@ -7,6 +7,7 @@ import pkcs11
 from fastapi import FastAPI, HTTPException, Request, Header, Depends
 from pydantic import BaseModel
 from cachetools import TTLCache # Thư viện thay thế Redis
+import time
 
 app = FastAPI()
 lib = pkcs11.lib('/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so')

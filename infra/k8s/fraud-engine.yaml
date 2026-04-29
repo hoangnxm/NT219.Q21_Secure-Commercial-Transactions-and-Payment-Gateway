@@ -15,7 +15,8 @@ spec:
     spec:
       containers:
       - name: fraud-engine
-        image: payment_fraud_engine:v1
+        image: payment-fraud-engine:local
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8001
         # BƠM CHỨNG CHỈ VÀO FRAUD ENGINE
@@ -26,7 +27,7 @@ spec:
       volumes:
       - name: cert-volume
         secret:
-          secretName: master-mtls-certs
+          secretName: fraud-certs
 ---
 apiVersion: v1
 kind: Service

@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: payment-orchestrator
-        image: payment_orchestrator:local
+        image: payment-orchestrator:local
         ports:
         - containerPort: 8000
         # ĐỔI THÀNH MOUNT PATH CHUẨN
@@ -29,7 +29,7 @@ spec:
       volumes:
       - name: cert-volume
         secret:
-          secretName: master-mtls-certs
+          secretName: orchestrator-certs
 ---
 apiVersion: v1
 kind: Service

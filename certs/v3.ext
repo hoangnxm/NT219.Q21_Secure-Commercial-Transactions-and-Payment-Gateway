@@ -1,0 +1,11 @@
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+extendedKeyUsage = serverAuth, clientAuth
+subjectAltName = @alt_names
+[alt_names]
+DNS.1 = payment-orchestrator-service
+DNS.2 = api-gateway-service
+DNS.3 = fraud-engine-service
+DNS.4 = softhsm
+DNS.5 = merchant-backend-svc
+DNS.6 = localhost

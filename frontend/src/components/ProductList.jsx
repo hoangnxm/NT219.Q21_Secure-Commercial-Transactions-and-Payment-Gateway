@@ -6,7 +6,7 @@ export default function ProductList({ onSelectProduct }) {
 
   // Gọi API lấy dữ liệu thật từ Backend khi vừa load trang
   useEffect(() => {
-    fetch('http://localhost:5000/api/products')
+    fetch('http://localhost:5000/api/products', { cache: 'no-store' })
       .then(response => response.json())
       .then(data => {
         if (data.status === "success") {

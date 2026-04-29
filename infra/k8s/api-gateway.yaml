@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: api-gateway
-        image: payment_api_gateway:local
+        image: payment-api-gateway:local
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8443
@@ -26,7 +26,7 @@ spec:
       volumes:
       - name: cert-volume
         secret:
-          secretName: master-mtls-certs
+          secretName: gateway-certs
 ---
 apiVersion: v1
 kind: Service
@@ -34,29 +34,10 @@ metadata:
   name: api-gateway-service
   namespace: nt219-project
 spec:
-  type: ClusterIP  # Đã đổi LoadBalancer thành ClusterIP vì Ingress sẽ làm nhiệm vụ public
+  type: LoadBalancer  # Đã đổi LoadBalancer thành ClusterIP vì Ingress sẽ làm nhiệm vụ public
   selector:
     app: api-gateway
   ports:
   - port: 443
     targetPort: 8443
----
-# BỘ GIÁP INGRESS PHÂN LUỒNG TỪ 8081 VÀO GATEWAY
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: payment-ingress
-  namespace: nt219-project
-  annotations:
-    ingress.kubernetes.io/ssl-redirect: "false"
-spec:
-  rules:
-  - http:
-      paths:
-      - path: /payment
-        pathType: Prefix
-        backend:
-          service:
-            name: api-gateway-service
-            port:
-              number: 443
+    protocol: TCP

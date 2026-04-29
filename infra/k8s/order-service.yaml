@@ -15,18 +15,9 @@ spec:
     spec:
       containers:
       - name: order
-        image: payment_order:local
+        image: payment-order:local
         ports:
         - containerPort: 5000
-        # BƠM CHỨNG CHỈ VÀO ORDER SERVICE
-        volumeMounts:
-        - name: cert-volume
-          mountPath: "/certs"
-          readOnly: true
-      volumes:
-      - name: cert-volume
-        secret:
-          secretName: master-mtls-certs
 ---
 apiVersion: v1
 kind: Service

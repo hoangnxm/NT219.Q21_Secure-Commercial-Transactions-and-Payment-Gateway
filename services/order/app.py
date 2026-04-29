@@ -22,8 +22,8 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-PAYMENT_ORCHESTRATOR_URL = "https://api-gateway-service.nt219-project.svc.cluster.local:8443/payment/api/payments/charge"
-PAYMENT_CHECK_URL = "https://api-gateway-service.nt219-project.svc.cluster.local:8443/payment/api/payments/status/"
+PAYMENT_ORCHESTRATOR_URL = "https://howard-unmonotonous-cristen.ngrok-free.dev/payment/api/payments/charge"
+PAYMENT_CHECK_URL = "https://howard-unmonotonous-cristen.ngrok-free.dev/payment/api/payments/status/"
 
 HMAC_SECRET = b"chuoi_bi_mat_cua_nhom_NT219"
 
@@ -72,9 +72,6 @@ async def create_order(request: CheckoutRequest):
             db.close()
             raise HTTPException(status_code=400, detail="Hết hàng!")
 
-        product.stock -= request.quantity
-        db.commit()
-
         order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"    
         total_amount = product.price * request.quantity
 
@@ -105,7 +102,6 @@ async def create_order(request: CheckoutRequest):
 
         print(f"✅ Đã tạo đơn {order_id} (PENDING). Kho còn: {product.stock}")
 
-        # KHÔNG GỌI SOFTHSM Ở ĐÂY NỮA
         return {
             "status": "success",
             "order_id": order_id,   
@@ -115,43 +111,7 @@ async def create_order(request: CheckoutRequest):
        
     except Exception as e:
         db.rollback()
-        refund_product = db.query(Product).filter(Product.id == request.product_id).with_for_update().first()
-        if refund_product:
-            refund_product.stock += request.quantity
-            db.commit()
         raise HTTPException(status_code=500, detail=f"Lỗi khởi tạo đơn: {str(e)}")
-    finally:
-        db.close()
-
-# ==========================================
-# MODULE 2: XÁC THỰC THÀNH CÔNG VÀ KÝ BIÊN LAI
-# ==========================================
-@app.post("/api/orders/confirm")
-async def confirm_order(request: ConfirmRequest):
-    db = SessionLocal()
-    try:
-        # TÌM LẠI ĐƠN HÀNG ĐANG CHỜ
-        order = db.query(Order).filter(Order.id == request.order_id).with_for_update().first()
-        if not order:
-            raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
-        
-        if order.status == "SUCCESS":
-            return {"status": "success", "message": "Đơn hàng đã được xác nhận từ trước"}
-        
-        # CẬP NHẬT TRẠNG THÁI THÀNH CÔNG
-        order.status = "SUCCESS"
-        db.commit()
-
-        print(f"✅ Đã đồng bộ trạng thái thanh toán cho đơn {order.id}")
-
-        return {
-            "status": "success",
-            "order_id": order.id,
-        }
-
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Lỗi xác nhận: {str(e)}")
     finally:
         db.close()
 
@@ -208,54 +168,37 @@ async def get_products():
         
     return {"status":"success","data": result}
 
-@app.get("/api/orders/reconcile")
-def reconcile_orders():
+@app.get("/api/orders/{order_id}/verify")
+def verify_order_payment(order_id: str):
     db = SessionLocal()
-    
-    report = {
-        "total_checked" : 0,
-        "matched" : [], 
-        "mismatched": [], 
-        "missing_in_gw": [] 
-    }
-    
     try:
-        orders = db.query(Order).all()
+        order = db.query(Order).filter(Order.id == order_id).first()
+        if not order:
+            raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
         
-        for order in orders:
-            report["total_checked"] += 1
+        # Gọi sang API Gateway (Orchestrator) để lấy chữ ký JWS về
+        res = requests.get(f"{PAYMENT_CHECK_URL}{order_id}", timeout=5)
+        
+        if res.status_code == 200:
+            data = res.json()
+            # Nếu Gateway báo đã SUCCESS thì cập nhật Order luôn
+            if data.get("status") in ["SUCCESS", "succeeded", "COMPLETED"]:
+                if order.status != "SUCCESS":
+                    order.status = "SUCCESS"
+                    # TÌM SẢN PHẨM VÀ TRỪ KHO
+                    product = db.query(Product).filter(Product.id == order.product_id).first()
+                    if product and product.stock >= order.quantity:
+                        product.stock -= order.quantity  
+                    db.commit()
+            return {"status": order.status, "jws_signature": data.get("jws_signature")}
             
-            try:
-                res = requests.get(f"{PAYMENT_CHECK_URL}{order.id}",verify = False, timeout=5)
-                
-                if res.status_code == 404:
-                    report["missing_in_gw"].append(order.id)
-                    continue
-                
-                gw_data = res.json()
-                gw_status = gw_data.get("status")
-                gw_amount = gw_data.get("amount")
-                
-                if order.status == gw_status and float(order.amount) == float(gw_amount):
-                    report["matched"].append(order.id)
-                else:
-                    report["mismatched"].append({
-                        "order_id": order.id,
-                        "local_status": order.status,
-                        "local_amount": order.amount,
-                        "gw_status": gw_status,
-                        "gw_amount": gw_amount
-                    })
-            except Exception as e:
-                report["mismatched"].append({
-                    "order_id": order.id,
-                    "error": f"Lỗi kết nối Laravel: {str(e)}"
-                })
-        return {"status": "success", "reconciliation_report": report}
+        return {"status": order.status, "jws_signature": None}
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Lỗi gọi Gateway từ Order Service: {e}")
+        return {"status": order.status if 'order' in locals() and order else "PENDING", "jws_signature": None}
     finally:
-        db.close()
+        db.close() 
 
 if __name__ == "__main__":
     import uvicorn
